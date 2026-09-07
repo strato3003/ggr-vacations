@@ -1,0 +1,22 @@
+services:
+  web:
+    build: .
+    ports:
+      - "8080:8080"
+    environment:
+      GGR_DATA_DIR: /data
+      GGR_CONFIG: /config/config.yaml
+      GGR_ADMIN_TOKEN: ${GGR_ADMIN_TOKEN:-}
+    volumes:
+      - ./data:/data
+      - ./config/default.yaml:/config/config.yaml:ro
+      - shm:/dev/shm
+    shm_size: "1gb"
+
+volumes:
+  shm:
+    driver: local
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+      o: "size=1024m"

@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ app_name }} {{ version }}{% block title %}{% endblock %}</title>
+  <link rel="stylesheet" href="/static/css/app.css">
+</head>
+<body>
+  <header class="mast">
+    <div class="mast__brand">
+      <a href="/" class="logo">{{ app_name }} <span class="ver">{{ version }}</span></a>
+      <p class="tag">Vacations HF · {{ club.callsign }} · flotte Golden Globe Race</p>
+    </div>
+    <nav class="nav">
+      <a href="/">Vacations</a>
+      <a href="/flotte">Flotte &amp; SDR</a>
+      <a href="/a-propos">À propos</a>
+    </nav>
+  </header>
+
+  <section class="qrg-bar" aria-label="Fréquences de vacation">
+    <div class="qrg">
+      <span class="qrg__k">TX {{ club.callsign }}</span>
+      <span class="qrg__v">14.135 MHz USB</span>
+      <span class="qrg__h">± 2–3 kHz · 18:00 TU</span>
+    </div>
+    <div class="qrg">
+      <span class="qrg__k">ACK 16 m</span>
+      <span class="qrg__v">16.5515 MHz USB</span>
+    </div>
+    <div class="qrg">
+      <span class="qrg__k">ACK 12 m</span>
+      <span class="qrg__v">12.4185 MHz USB</span>
+    </div>
+    <div class="qrg qrg--next">
+      <span class="qrg__k">Prochain bulletin</span>
+      <span class="qrg__v" id="countdown" data-iso="{{ bulletin_utc.isoformat() }}">{{ bulletin_utc.strftime('%d/%m %H:%M') }} TU</span>
+      {% if recording %}<span class="live">Enregistrement en cours</span>{% endif %}
+    </div>
+  </section>
+
+  <main class="wrap">
+    {% block content %}{% endblock %}
+  </main>
+
+  <footer class="foot">
+    <p>{{ app_name }} {{ version }} — enregistrements KiwiSDR selon la position moyenne de la flotte GGR.</p>
+  </footer>
+  <script src="/static/js/app.js"></script>
+</body>
+</html>

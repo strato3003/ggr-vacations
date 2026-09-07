@@ -1,0 +1,19 @@
+# GGR Vacations (ggr-vacations)
+
+## Identité
+- Application : **GGR Vacations**
+- Objet : enregistrer les vacations HF entre le radio-club **F6KUF** et la flotte **Golden Globe Race**.
+- Version : MAJOR.MINOR.PATCH. PATCH automatique pour les correctifs. Demander avant MAJOR/MINOR.
+
+## Radio (ne pas approximer)
+- Bulletin F6KUF : **14.135 MHz USB**, tous les jours **18:00 TU**, QRG ± 2–3 kHz.
+- Accusés de réception : **16.5515 MHz USB** et **12.4185 MHz USB**.
+- Chaque hertz / kHz / suffixe de modèle SDR est significatif.
+
+## Technique
+- UI et commentaires techniques en **français**.
+- Enregistrement via les meilleurs KiwiSDR selon la position moyenne de la flotte.
+- Screencast du SDR pour le replay « comme si on y était ».
+- Déploiement **k3s** : manifests dans `k8s/`, mise à jour via `scripts/update.sh`.
+- Modifications chirurgicales : ne pas réécrire un fichier entier si un diff local suffit.
+- Ne pas supprimer commentaires explicatifs ni constantes de configuration sans demander.

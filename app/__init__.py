@@ -1,0 +1,1 @@
+"""Interface web GGR Vacations."""

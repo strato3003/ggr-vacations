@@ -1,0 +1,77 @@
+# Configuration GGR Vacations — F6KUF / flotte Golden Globe Race
+version: "0.1.0"
+
+club:
+  callsign: F6KUF
+  name: "Radio-club F6KUF"
+
+# Vacation quotidienne
+schedule:
+  # Heure TU du bulletin météo
+  time_utc: "18:00"
+  # Démarrer l'enregistrement avant l'heure pile (QSY, appels, étalement ± 2–3 kHz)
+  lead_minutes: 10
+  # Durée totale d'enregistrement (bulletin + accusés)
+  duration_minutes: 45
+
+radio:
+  mode: usb
+  usb_filter:
+    low_hz: 300
+    high_hz: 2700
+  tx:
+    freq_khz: 14135.0
+    # Le club peut être à ± 2–3 kHz de la QRG nominale
+    qrg_tolerance_khz: 3.0
+    label: "Bulletin météo F6KUF"
+    zoom: 10
+  ack:
+    - freq_khz: 16551.5
+      label: "Accusé 16,5515 MHz"
+      zoom: 10
+    - freq_khz: 12418.5
+      label: "Accusé 12,4185 MHz"
+      zoom: 10
+
+# Position moyenne de la flotte GGR (Yellowbrick)
+fleet:
+  source: yellowbrick
+  race_id: ggr2026
+  tracker_host: cf.yb.tl
+  # Ignorer les traces « fantômes » historiques (Moitessier, RKJ, etc.)
+  skip_team_id_from: 900
+  # Repli si le tracker est indisponible (Les Sables-d'Olonne)
+  fallback:
+    lat: 46.5025
+    lon: -1.7888
+    label: "Les Sables-d'Olonne (repli)"
+
+sdr:
+  # Liste publique KiwiSDR (JS, virgules finales possibles)
+  directory_url: "http://rx.linkfanel.net/kiwisdr_com.js"
+  ident_user: ggr-vacations
+  # Places libres minimales (navigateur screencast + flux audio SND)
+  min_free_slots: 2
+  # Couverture HF nécessaire (Hz)
+  min_freq_hz: 12000000
+  max_freq_hz: 17000000
+  screencast_tx: true
+  screencast_ack: false
+  viewport:
+    width: 1280
+    height: 800
+
+storage:
+  data_dir: /data
+  retention_days: 180
+
+web:
+  title: "GGR Vacations"
+  host: "0.0.0.0"
+  port: 8080
+  # Jeton pour déclencher un enregistrement manuel (POST /api/vacations/record)
+  admin_token: ""
+
+# Hôte Ingress k3s (à adapter)
+ingress:
+  host: ggr-vacations.local

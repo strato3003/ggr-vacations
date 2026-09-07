@@ -1,0 +1,18 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: ggr-vacations
+resources:
+  - pvc.yaml
+  - deployment.yaml
+  - service.yaml
+  - ingress.yaml
+configMapGenerator:
+  - name: ggr-vacations-config
+    files:
+      - config.yaml=../config/default.yaml
+generatorOptions:
+  disableNameSuffixHash: true
+images:
+  - name: ggr-vacations
+    newName: ggr-vacations
+    newTag: local

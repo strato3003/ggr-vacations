@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ggr-vacations-data
+  labels:
+    app.kubernetes.io/name: ggr-vacations
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 50Gi
+  # Sur k3s : storageClass local-path (défaut). Adapter si besoin.
+  storageClassName: local-path

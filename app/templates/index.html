@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %} · Accueil{% endblock %}
+{% block content %}
+<section class="intro">
+  <h1>Archives des vacations radio</h1>
+  <p>
+    Chaque jour à <strong>18:00 TU</strong>, le radio-club <strong>{{ club.callsign }}</strong>
+    émet le bulletin météo à destination des skippers du Golden Globe Race.
+    L’application choisit les KiwiSDR les plus proches de la position moyenne de la flotte,
+    capture le waterfall en screencast et enregistre l’audio USB pour le rejouer ensuite.
+  </p>
+</section>
+
+{% if vacations %}
+<ul class="cards">
+  {% for v in vacations %}
+  <li class="card">
+    <a href="/vacations/{{ v.id }}">
+      {% if v.thumb %}
+      <img src="/media/{{ v.id }}/{{ v.thumb }}" alt="Waterfall {{ v.id }}">
+      {% else %}
+      <div class="card__ph">{{ v.id }}</div>
+      {% endif %}
+      <div class="card__body">
+        <h2>{{ v.started_at | when }}</h2>
+        <p class="meta">
+          {{ v.club.callsign if v.club else club.callsign }}
+          · {{ v.fleet_fmt or (v.fleet.fmt if v.fleet else '') }}
+          · <span class="st st--{{ v.status }}">{{ v.status }}</span>
+        </p>
+      </div>
+    </a>
+  </li>
+  {% endfor %}
+</ul>
+{% else %}
+<p class="empty">Aucune vacation enregistrée pour le moment. Le premier passage est planifié à 18:00 TU (démarrage {{ schedule.lead_minutes }} min avant).</p>
+{% endif %}
+{% endblock %}

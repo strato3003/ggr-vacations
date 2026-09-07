@@ -1,0 +1,19 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ggr-vacations
+  labels:
+    app.kubernetes.io/name: ggr-vacations
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: ggr-vacations.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: ggr-vacations
+                port:
+                  number: 8080

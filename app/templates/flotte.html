@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block title %} · Flotte &amp; SDR{% endblock %}
+{% block content %}
+<section class="intro">
+  <h1>Position moyenne de la flotte</h1>
+  <p>
+    Les KiwiSDR sont classés selon la distance à ce centroïde, le SNR HF publié
+    et le nombre de places libres (screencast + audio).
+  </p>
+</section>
+
+<div class="fleet-box">
+  <p class="qrg__v">{{ fleet.fmt }}</p>
+  <p class="meta">{{ fleet.label }} · source {{ fleet.source }} · {{ fleet.n_boats }} bateaux</p>
+  {% if fleet.warning %}<p class="err">{{ fleet.warning }}</p>{% endif %}
+</div>
+
+{% if fleet.boats %}
+<table class="tbl">
+  <thead>
+    <tr><th>Skipper</th><th>Voile</th><th>Position</th></tr>
+  </thead>
+  <tbody>
+    {% for b in fleet.boats %}
+    <tr>
+      <td>{{ b.name }}</td>
+      <td>{{ b.sail or '—' }}</td>
+      <td>{{ '%.3f'|format(b.lat) }}, {{ '%.3f'|format(b.lon) }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+
+<h2>KiwiSDR retenus</h2>
+<table class="tbl">
+  <thead>
+    <tr><th>Récepteur</th><th>Distance</th><th>SNR HF</th><th>Places</th><th>Score</th></tr>
+  </thead>
+  <tbody>
+    {% for k in kiwis %}
+    <tr>
+      <td><a href="{{ k.url }}" rel="noreferrer">{{ k.name }}</a><br><span class="meta">{{ k.loc }} · {{ k.antenna }}</span></td>
+      <td>{{ k.distance_km }} km</td>
+      <td>{{ k.snr_hf }}</td>
+      <td>{{ k.free_slots }}/{{ k.users_max }}</td>
+      <td>{{ k.score }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

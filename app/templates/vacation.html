@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %} · {{ vacation.started_at | when }}{% endblock %}
+{% block content %}
+<article class="vac">
+  <header class="vac__head">
+    <p class="crumb"><a href="/">← Vacations</a></p>
+    <h1>{{ vacation.started_at | when }}</h1>
+    <p class="meta">
+      {{ vacation.club.callsign if vacation.club else club.callsign }}
+      · SDR selon {{ vacation.fleet.label if vacation.fleet else 'flotte' }}
+      {% if vacation.fleet %}({{ vacation.fleet.fmt }}){% endif %}
+      · {{ vacation.status }}
+    </p>
+  </header>
+
+  {% if vacation.tx and vacation.tx.video %}
+  <div class="player">
+    <video id="sdr-video" controls playsinline poster="{% if vacation.tx.thumb %}/media/{{ vacation.id }}/{{ vacation.tx.thumb }}{% endif %}">
+      <source src="/media/{{ vacation.id }}/{{ vacation.tx.video }}" type="video/mp4">
+    </video>
+    <p class="player__cap">Replay screencast · {{ vacation.tx.label }} · {{ vacation.tx.kiwi.name if vacation.tx.kiwi else '' }}</p>
+  </div>
+  {% endif %}
+
+  <section class="channels">
+    <h2>Canaux</h2>
+    <div class="chan-grid">
+      {% for ch in vacation.channels or [] %}
+      <div class="chan">
+        <h3>{{ ch.label }}</h3>
+        <p class="qrg__v">{{ '%.4f'|format(ch.freq_khz) }} kHz USB</p>
+        {% if ch.kiwi %}
+        <p class="meta">{{ ch.kiwi.name }} · {{ ch.kiwi.distance_km }} km · SNR HF {{ ch.kiwi.snr_hf }}</p>
+        {% endif %}
+        {% if ch.audio %}
+        <audio controls src="/media/{{ vacation.id }}/{{ ch.audio }}" data-sync="1"></audio>
+        {% endif %}
+        {% if ch.video and ch.id != 'tx' %}
+        <p><a href="/media/{{ vacation.id }}/{{ ch.video }}">Télécharger le screencast</a></p>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+  </section>
+
+  {% if vacation.error %}
+  <p class="err">Erreur : {{ vacation.error }}</p>
+  {% endif %}
+</article>
+{% endblock %}

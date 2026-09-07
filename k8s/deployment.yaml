@@ -1,0 +1,76 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ggr-vacations
+  labels:
+    app.kubernetes.io/name: ggr-vacations
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ggr-vacations
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ggr-vacations
+    spec:
+      securityContext:
+        fsGroup: 1000
+      containers:
+        - name: web
+          image: ggr-vacations:local
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+              name: http
+          env:
+            - name: GGR_DATA_DIR
+              value: /data
+            - name: GGR_CONFIG
+              value: /config/config.yaml
+            - name: GGR_ADMIN_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: ggr-vacations-secrets
+                  key: admin-token
+                  optional: true
+          resources:
+            requests:
+              cpu: 200m
+              memory: 512Mi
+            limits:
+              cpu: "2"
+              memory: 3Gi
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 8
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 30
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: config
+              mountPath: /config
+              readOnly: true
+            - name: dshm
+              mountPath: /dev/shm
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: ggr-vacations-data
+        - name: config
+          configMap:
+            name: ggr-vacations-config
+        - name: dshm
+          emptyDir:
+            medium: Memory
+            sizeLimit: 1Gi

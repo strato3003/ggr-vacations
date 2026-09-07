@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %} · À propos{% endblock %}
+{% block content %}
+<article class="prose">
+  <h1>À propos — {{ app_name }} {{ version }}</h1>
+  <p>
+    <strong>GGR Vacations</strong> archive les vacations HF entre le radio-club
+    <strong>F6KUF</strong> et les bateaux de la flotte Golden Globe Race.
+    Le club émet un bulletin météo tous les jours à <strong>18:00 TU</strong> sur
+    <strong>14.135 MHz USB</strong> (QRG nominale ± 2 à 3 kHz) et écoute les
+    accusés de réception sur <strong>16.5515 MHz USB</strong> et
+    <strong>12.4185 MHz USB</strong>.
+  </p>
+  <h2>Fonctionnement</h2>
+  <ul>
+    <li>Position moyenne de la flotte via le tracker Yellowbrick GGR 2026.</li>
+    <li>Choix des KiwiSDR (distance, SNR HF, places libres, couverture 12–17 MHz).</li>
+    <li>Screencast de l’interface SDR (waterfall / VFO) muxé avec l’audio USB 12 kHz.</li>
+    <li>Replay dans cette interface, comme si l’on était devant le récepteur.</li>
+  </ul>
+  <h2>Crédits</h2>
+  <ul>
+    <li>Radio-club F6KUF — émission du bulletin météo.</li>
+    <li>Skippers et organisation Golden Globe Race — tracker Yellowbrick.</li>
+    <li>Opérateurs KiwiSDR — récepteurs HF publics.</li>
+    <li>Liste des récepteurs : rx.linkfanel.net (agrégation kiwisdr.com).</li>
+  </ul>
+  <p>Licence MIT — code source du dépôt <code>ggr-vacations</code>.</p>
+</article>
+{% endblock %}
