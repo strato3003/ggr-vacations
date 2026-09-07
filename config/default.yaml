@@ -1,5 +1,5 @@
 # Configuration GGR Vacations — F6KUF / flotte Golden Globe Race
-version: "0.1.0"
+version: "0.1.1"
 
 club:
   callsign: F6KUF
@@ -63,7 +63,8 @@ sdr:
 
 storage:
   data_dir: /data
-  retention_days: 180
+  # PVC 5 Gio : une vacation (screencast MP4 + 3 WAV) ≈ 400–600 Mio → ~14 jours
+  retention_days: 14
 
 web:
   title: "GGR Vacations"

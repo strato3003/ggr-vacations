@@ -9,6 +9,7 @@ spec:
     - ReadWriteOnce
   resources:
     requests:
-      storage: 50Gi
-  # Sur k3s : storageClass local-path (défaut). Adapter si besoin.
+      # VPS ~72 Go dont ~26 Go libres : rester très en dessous du disque racine.
+      storage: 5Gi
+  # Sur k3s : storageClass local-path (défaut, consomme /). Adapter si besoin.
   storageClassName: local-path

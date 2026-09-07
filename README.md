@@ -1,4 +1,4 @@
-# GGR Vacations 0.1.0
+# GGR Vacations 0.1.1
 
 Archives des **vacations HF** entre le radio-club **F6KUF** et les bateaux de la flotte **Golden Globe Race**.
 
@@ -14,7 +14,7 @@ Tous les jours à **18:00 TU**, F6KUF émet un bulletin météo sur **14.135 MHz
    - muxage ffmpeg → MP4 H.264 / AAC.
 4. **Replay** — interface web (français) : liste des vacations, lecteur vidéo, pistes audio.
 
-Déploiement prévu sur un VPS **Ubuntu 26.04** avec **k3s**. Un seul pod sert l’UI et lance l’enregistreur (APScheduler).
+Déploiement prévu sur un VPS **Ubuntu 26.04** avec **k3s**, dans le namespace **`ggr-vacations`**. Un seul pod sert l’UI et lance l’enregistreur (APScheduler). Le volume des archives est un PVC **5 Gio** (`local-path`, donc sur `/`) : adapté à un disque racine d’une soixantaine de Go.
 
 ## Mise à jour serveur (k3s)
 
@@ -32,6 +32,10 @@ sudo ./scripts/update.sh           # tire GHCR si origin GitHub, sinon rebuild
 ```
 
 L’UI est exposée en **NodePort 30080** : `http://<IP-du-VPS>:30080`.
+
+```bash
+sudo k3s kubectl -n ggr-vacations get pods,svc,pvc
+```
 
 Pour un nom DNS, modifier `k8s/ingress.yaml` (`ggr-vacations.local`) puis relancer `./scripts/update.sh`. Traefik (fourni par k3s) prend l’Ingress en charge.
 
@@ -52,7 +56,7 @@ Fichier unique : [`config/default.yaml`](config/default.yaml) (monté en ConfigM
 | Avance | 10 min |
 | Durée | 45 min |
 | Tracker | `ggr2026` sur `cf.yb.tl` |
-| Rétention | 180 jours |
+| Rétention | 14 jours (PVC 5 Gio) |
 
 ## Développement local
 

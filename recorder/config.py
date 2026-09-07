@@ -54,4 +54,4 @@ def data_dir(cfg: dict[str, Any] | None = None) -> Path:
 
 def version(cfg: dict[str, Any] | None = None) -> str:
     cfg = cfg or load_config()
-    return str(cfg.get("version") or "0.1.0")
+    return str(cfg.get("version") or "0.1.1")
