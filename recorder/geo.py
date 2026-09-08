@@ -16,6 +16,15 @@ def haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     return 2 * EARTH_KM * math.atan2(math.sqrt(a), math.sqrt(max(0.0, 1 - a)))
 
 
+def initial_bearing(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    """Cap initial (0–360°) de (lat1, lon1) vers (lat2, lon2), 0 = nord."""
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    dlmb = math.radians(lon2 - lon1)
+    y = math.sin(dlmb) * math.cos(p2)
+    x = math.cos(p1) * math.sin(p2) - math.sin(p1) * math.cos(p2) * math.cos(dlmb)
+    return (math.degrees(math.atan2(y, x)) + 360.0) % 360.0
+
+
 def centroid(points: list[tuple[float, float]]) -> tuple[float, float] | None:
     """Centroïde sphérique approximé (moyenne vectorielle unitaire)."""
     if not points:

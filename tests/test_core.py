@@ -5,8 +5,8 @@ from __future__ import annotations
 import struct
 from datetime import datetime, timezone
 
-from recorder.fleet import parse_positions3
-from recorder.geo import centroid, fmt_latlon, haversine_km
+from recorder.fleet import parse_positions3, _heading_deg, _team_colour
+from recorder.geo import centroid, fmt_latlon, haversine_km, initial_bearing
 from recorder.kiwi_audio import ImaAdpcmDecoder, wav_from_snd_frames, _pcm_from_snd, _ws_uris
 from recorder.kiwi_list import parse_kiwi_directory, score_kiwi
 from recorder.session import next_vacation_utc, vacation_id
@@ -20,6 +20,11 @@ def test_haversine_atlantic_order():
     # Les Sables → cap Finisterre ~ 550–700 km
     d = haversine_km(46.50, -1.79, 42.88, -9.27)
     assert 500 < d < 800
+
+
+def test_initial_bearing_cardinals():
+    assert abs(initial_bearing(0.0, 0.0, 1.0, 0.0) - 0.0) < 0.5
+    assert abs(initial_bearing(0.0, 0.0, 0.0, 1.0) - 90.0) < 0.5
 
 
 def test_centroid_and_fmt():
@@ -40,6 +45,17 @@ def test_next_vacation_before_slot():
     nxt = next_vacation_utc(cfg, now)
     assert nxt.hour == 17 and nxt.minute == 50
     assert nxt.date() == now.date()
+
+
+def test_heading_from_two_fixes():
+    moments = [
+        {"lat": 46.50, "lon": -1.80, "at": 1},
+        {"lat": 46.51, "lon": -1.80, "at": 2},
+    ]
+    h = _heading_deg(moments)
+    assert h is not None
+    assert abs(h - 0.0) < 2.0
+    assert _team_colour({"colour": "FF3300"}) == "#FF3300"
 
 
 def test_parse_positions3_single_fix():

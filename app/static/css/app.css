@@ -73,18 +73,35 @@ h2 { font-size: 1.15rem; margin-top: 2rem; }
 .err { color: var(--err); }
 .fleet-box { background: var(--panel); padding: 1rem 1.2rem; border-left: 3px solid var(--brass); margin: 1rem 0 1.5rem; }
 .ggr-map-fig { margin: 0 0 1.75rem; }
-.ggr-map { height: 28rem; width: 100%; background: #071019; border: 1px solid var(--line); }
+.ggr-map { height: 36rem; width: 100%; background: #071019; border: 1px solid var(--line); }
 .ggr-map-cap { margin: 0.45rem 0 0; color: var(--muted); font-size: 0.85rem; }
 .ggr-map-legend { display: flex; gap: 1.25rem; list-style: none; padding: 0.55rem 0 0; margin: 0; color: var(--muted); font-size: 0.82rem; }
-.ggr-map-legend .dot { display: inline-block; width: 0.7rem; height: 0.7rem; border-radius: 50%; margin-right: 0.35rem; vertical-align: -0.05rem; }
-.dot--boat { background: #e8c547; }
-.dot--cent { background: #081018; box-shadow: 0 0 0 2px #c9a227; }
-.dot--sdr { background: #3dba7a; }
+.ggr-map-legend .dot { display: inline-block; width: 0.7rem; height: 0.7rem; margin-right: 0.35rem; vertical-align: -0.05rem; }
+.dot--boat { width: 0; height: 0; border-left: 0.38rem solid transparent; border-right: 0.38rem solid transparent; border-bottom: 0.75rem solid #e8c547; background: none; }
+.dot--cent { border-radius: 50%; background: #081018; box-shadow: 0 0 0 2px #c9a227; }
+.dot--sdr { border-radius: 2px; background: #3dba7a; }
+.ggr-boat-icon, .ggr-sdr-icon { background: none; border: none; }
+.ggr-boat-mark, .ggr-sdr-mark { line-height: 0; }
 .leaflet-container { font-family: var(--sans); background: #071019; }
 .leaflet-popup-content-wrapper, .leaflet-popup-tip { background: var(--panel); color: var(--foam); }
 .leaflet-popup-content { margin: 0.7rem 0.85rem; }
 .leaflet-control-layers { background: var(--panel); color: var(--foam); border: 1px solid var(--line); }
 .leaflet-control-attribution { background: rgba(8, 16, 24, 0.75); color: var(--muted); }
+.ggr-yb-label, .ggr-sdr-label {
+  background: rgba(8, 16, 24, 0.88);
+  color: #f4f1ea;
+  border: none;
+  border-radius: 2px;
+  box-shadow: none;
+  font-size: 0.72rem;
+  font-weight: 500;
+  padding: 1px 6px;
+  white-space: nowrap;
+}
+.ggr-yb-label { padding: 1px 6px 1px 0; }
+.ggr-sdr-label { border-left: 3px solid var(--rx); }
+.leaflet-tooltip-top:before, .leaflet-tooltip-bottom:before,
+.leaflet-tooltip-left:before, .leaflet-tooltip-right:before { display: none; }
 .tbl { width: 100%; border-collapse: collapse; font-size: 0.92rem; }
 .tbl th, .tbl td { text-align: left; padding: 0.55rem 0.4rem; border-bottom: 1px solid var(--line); vertical-align: top; }
 .tbl th { color: var(--muted); font-weight: 500; }
@@ -95,6 +112,6 @@ h2 { font-size: 1.15rem; margin-top: 2rem; }
 @media (max-width: 900px) {
   .qrg-bar { grid-template-columns: 1fr 1fr; }
   .mast { flex-direction: column; align-items: flex-start; }
-  .ggr-map { height: 20rem; }
+  .ggr-map { height: 24rem; }
   .ggr-map-legend { flex-wrap: wrap; gap: 0.6rem 1rem; }
 }

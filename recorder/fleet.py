@@ -7,7 +7,7 @@ import struct
 from datetime import datetime, timezone
 from typing import Any
 
-from recorder.geo import centroid, fmt_latlon
+from recorder.geo import centroid, fmt_latlon, haversine_km, initial_bearing
 
 log = logging.getLogger(__name__)
 
@@ -115,6 +115,30 @@ def _latest_fix(moments: list[dict[str, Any]]) -> dict[str, Any] | None:
     return max(moments, key=lambda m: m.get("at") or 0)
 
 
+def _team_colour(meta: dict[str, Any]) -> str:
+    raw = str(meta.get("colour") or "c9a227").strip().lstrip("#")
+    if len(raw) in (3, 6) and all(c in "0123456789abcdefABCDEF" for c in raw):
+        return f"#{raw}"
+    return "#c9a227"
+
+
+def _heading_deg(moments: list[dict[str, Any]]) -> float | None:
+    """Cap d’après les deux derniers points distincts (≥ 50 m)."""
+    ordered = sorted(moments, key=lambda m: m.get("at") or 0)
+    if len(ordered) < 2:
+        return None
+    last = ordered[-1]
+    for prev in reversed(ordered[:-1]):
+        if haversine_km(prev["lat"], prev["lon"], last["lat"], last["lon"]) >= 0.05:
+            return round(initial_bearing(prev["lat"], prev["lon"], last["lat"], last["lon"]), 1)
+    return None
+
+
+def _track_tail(moments: list[dict[str, Any]], limit: int = 36) -> list[list[float]]:
+    ordered = sorted(moments, key=lambda m: m.get("at") or 0)[-limit:]
+    return [[float(m["lat"]), float(m["lon"])] for m in ordered]
+
+
 async def fetch_fleet(cfg: dict[str, Any], client: Any | None = None) -> dict[str, Any]:
     """Retourne le centroïde de la flotte en course, avec repli configuré."""
     import httpx
@@ -165,8 +189,11 @@ async def fetch_fleet(cfg: dict[str, Any], client: Any | None = None) -> dict[st
                     "name": meta.get("name"),
                     "sail": meta.get("sail"),
                     "status": meta.get("status"),
+                    "colour": _team_colour(meta),
                     "lat": fix["lat"],
                     "lon": fix["lon"],
+                    "heading": _heading_deg(team.get("moments") or []),
+                    "track": _track_tail(team.get("moments") or []),
                     "at": fix.get("at"),
                 }
             )
