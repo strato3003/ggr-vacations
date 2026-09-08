@@ -51,14 +51,17 @@ build_local() {
     echo "docker est requis pour le build local (ou utilisez : $0 pull)" >&2
     exit 1
   fi
+  # stdout du build / import ne doit jamais alimenter IMAGE (sinon InvalidImageName).
   as_root docker build -t "$img" "$ROOT"
   as_root docker save "$img" | as_root k3s ctr images import -
-  printf '%s\n' "$img"
 }
 
 IMAGE=""
 case "$MODE" in
-  local) IMAGE="$(build_local)" ;;
+  local)
+    IMAGE="ggr-vacations:local"
+    build_local
+    ;;
   pull)
     IMAGE="$(image_from_origin)"
     if [[ -z "$IMAGE" ]]; then
@@ -69,7 +72,8 @@ case "$MODE" in
   auto)
     IMAGE="$(image_from_origin)"
     if [[ -z "$IMAGE" ]]; then
-      IMAGE="$(build_local)"
+      IMAGE="ggr-vacations:local"
+      build_local
     fi
     ;;
   *)
