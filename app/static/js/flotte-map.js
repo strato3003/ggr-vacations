@@ -22,8 +22,7 @@
     "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
     {
       attribution:
-        "Tuiles © Esri, Maxar, Earthstar Geographics · vent " +
-        '<a href="https://open-meteo.com/">Open-Meteo GFS</a> · positions ' +
+        "Tuiles © Esri, Maxar, Earthstar Geographics · positions " +
         '<a href="https://yb.tl/ggr2026">Yellowbrick</a>',
       maxZoom: 18,
     }
@@ -102,13 +101,8 @@
       .addTo(sdrLayer);
   });
 
-  const overlays = { "Bateaux GGR": boatLayer, KiwiSDR: sdrLayer };
-  const windLayer = makeWindLayer(data.wind);
-  if (windLayer) overlays["Vent GFS 10 m"] = windLayer;
-
   boatLayer.addTo(map);
   sdrLayer.addTo(map);
-  if (windLayer) windLayer.addTo(map);
 
   const nomsBox = document.getElementById("ggr-toggle-noms");
   if (nomsBox) {
@@ -120,7 +114,7 @@
   L.control
     .layers(
       { Satellite: satellite, OpenStreetMap: osm },
-      overlays,
+      { "Bateaux GGR": boatLayer, KiwiSDR: sdrLayer },
       { collapsed: false }
     )
     .addTo(map);
@@ -160,41 +154,6 @@
       html,
       iconSize: [18, 18],
       iconAnchor: [9, 9],
-    });
-  }
-
-  function makeWindLayer(wind) {
-    const vel = wind && wind.velocity;
-    if (!vel || !vel.length || typeof L.velocityLayer !== "function") return null;
-    return L.velocityLayer({
-      displayValues: true,
-      displayOptions: {
-        velocityType: "Vent GFS",
-        position: "bottomleft",
-        emptyString: "Vent GFS 10 m",
-        angleConvention: "bearingCW",
-        speedUnit: "kt",
-        directionString: "Dir",
-        speedString: "Vit",
-      },
-      data: vel,
-      minVelocity: 0,
-      maxVelocity: 12,
-      velocityScale: 0.02,
-      particleAge: 160,
-      lineWidth: 3.2,
-      particleMultiplier: 1 / 22,
-      frameRate: 22,
-      opacity: 1,
-      colorScale: [
-        "#4cc3ff",
-        "#5ee0c0",
-        "#c8f06a",
-        "#ffe14a",
-        "#ff9f3c",
-        "#ff5a3c",
-        "#e02020",
-      ],
     });
   }
 

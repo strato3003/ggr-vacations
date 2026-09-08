@@ -20,7 +20,6 @@ from recorder.fleet import fetch_fleet
 from recorder.kiwi_list import fetch_ranked_kiwis
 from recorder.scheduler import build_scheduler
 from recorder.session import next_vacation_utc, run_vacation
-from recorder.wind import fetch_wind_grid
 
 log = logging.getLogger(__name__)
 ROOT = Path(__file__).resolve().parent
@@ -129,18 +128,13 @@ async def flotte_page(request: Request):
         except Exception:
             log.exception("Liste KiwiSDR indisponible")
             kiwis = []
-        try:
-            wind = await fetch_wind_grid(fleet["lat"], fleet["lon"])
-        except Exception:
-            log.exception("Vent GFS indisponible")
-            wind = {"source": "open-meteo", "model": "GFS", "points": []}
     except Exception as exc:
         log.exception("Page flotte")
         return HTMLResponse(
             f"<!doctype html><pre>Erreur flotte : {type(exc).__name__}: {exc}</pre>",
             status_code=500,
         )
-    return render(request, "flotte.html", fleet=fleet, kiwis=kiwis, wind=wind)
+    return render(request, "flotte.html", fleet=fleet, kiwis=kiwis)
 
 
 @app.get("/a-propos", response_class=HTMLResponse)
