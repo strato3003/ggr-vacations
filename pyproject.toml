@@ -34,7 +34,7 @@ build-backend = "setuptools.build_meta"
 include = ["app*", "recorder*"]
 
 [tool.setuptools.package-data]
-app = ["templates/*.html", "static/css/*", "static/js/*"]
+app = ["templates/*.html", "static/css/*", "static/js/*", "static/vendor/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -92,6 +92,13 @@ h2 { font-size: 1.15rem; margin-top: 2rem; }
 .leaflet-popup-content { margin: 0.7rem 0.85rem; }
 .leaflet-control-layers { background: var(--panel); color: var(--foam); border: 1px solid var(--line); }
 .leaflet-control-attribution { background: rgba(8, 16, 24, 0.75); color: var(--muted); }
+.leaflet-control-velocity {
+  background: rgba(8, 16, 24, 0.88) !important;
+  color: #d7ece6 !important;
+  font-family: var(--sans);
+  font-size: 0.78rem;
+  padding: 2px 8px;
+}
 .ggr-yb-label, .ggr-sdr-label {
   background: rgba(8, 16, 24, 0.88);
   color: #f4f1ea;

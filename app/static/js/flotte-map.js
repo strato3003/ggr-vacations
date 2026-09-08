@@ -12,9 +12,6 @@
 
   const boats = (data.boats || []).filter((b) => Number.isFinite(b.lat) && Number.isFinite(b.lon));
   const kiwis = (data.kiwis || []).filter((k) => Number.isFinite(k.lat) && Number.isFinite(k.lon));
-  const winds = ((data.wind && data.wind.points) || []).filter(
-    (w) => Number.isFinite(w.lat) && Number.isFinite(w.lon)
-  );
   const cent = data.centroid || {};
 
   const map = L.map(el, { scrollWheelZoom: true, worldCopyJump: true });
@@ -25,7 +22,8 @@
     "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
     {
       attribution:
-        "Tuiles © Esri, Maxar, Earthstar Geographics · positions " +
+        "Tuiles © Esri, Maxar, Earthstar Geographics · vent " +
+        '<a href="https://open-meteo.com/">Open-Meteo GFS</a> · positions ' +
         '<a href="https://yb.tl/ggr2026">Yellowbrick</a>',
       maxZoom: 18,
     }
@@ -40,7 +38,6 @@
 
   const boatLayer = L.layerGroup();
   const sdrLayer = L.layerGroup();
-  const windLayer = L.layerGroup();
   const bounds = [];
 
   boats.forEach((b) => {
@@ -105,15 +102,13 @@
       .addTo(sdrLayer);
   });
 
-  winds.forEach((w) => {
-    L.marker([w.lat, w.lon], { icon: windIcon(w), zIndexOffset: 50, keyboard: false })
-      .bindPopup(windPopup(w, data.wind || {}))
-      .addTo(windLayer);
-  });
+  const overlays = { "Bateaux GGR": boatLayer, KiwiSDR: sdrLayer };
+  const windLayer = makeWindLayer(data.wind);
+  if (windLayer) overlays["Vent GFS 10 m"] = windLayer;
 
   boatLayer.addTo(map);
   sdrLayer.addTo(map);
-  if (winds.length) windLayer.addTo(map);
+  if (windLayer) windLayer.addTo(map);
 
   const nomsBox = document.getElementById("ggr-toggle-noms");
   if (nomsBox) {
@@ -125,11 +120,7 @@
   L.control
     .layers(
       { Satellite: satellite, OpenStreetMap: osm },
-      {
-        "Bateaux GGR": boatLayer,
-        KiwiSDR: sdrLayer,
-        "Vent GFS 10 m": windLayer,
-      },
+      overlays,
       { collapsed: false }
     )
     .addTo(map);
@@ -172,40 +163,39 @@
     });
   }
 
-  function windColor(kn) {
-    if (kn < 8) return "#8ecae6";
-    if (kn < 16) return "#7ec8a3";
-    if (kn < 25) return "#e8c547";
-    return "#d45c3a";
-  }
-
-  function windIcon(w) {
-    const to = ((Number(w.dir_from) || 0) + 180) % 360;
-    const kn = Number(w.speed_kn) || 0;
-    const col = windColor(kn);
-    const html =
-      `<div class="ggr-wind-mark" style="transform:rotate(${to}deg)">` +
-      `<svg viewBox="0 0 16 28" width="14" height="24" aria-hidden="true">` +
-      `<path d="M8 3 L8 22" stroke="${col}" stroke-width="2" stroke-linecap="round"/>` +
-      `<path d="M8 2 L3.5 11 L8 8 L12.5 11 Z" fill="${col}"/>` +
-      `</svg></div>`;
-    return L.divIcon({
-      className: "ggr-wind-icon",
-      html,
-      iconSize: [14, 24],
-      iconAnchor: [7, 12],
+  function makeWindLayer(wind) {
+    const vel = wind && wind.velocity;
+    if (!vel || !vel.length || typeof L.velocityLayer !== "function") return null;
+    return L.velocityLayer({
+      displayValues: true,
+      displayOptions: {
+        velocityType: "Vent GFS",
+        position: "bottomleft",
+        emptyString: "Vent GFS 10 m",
+        angleConvention: "bearingCW",
+        speedUnit: "kt",
+        directionString: "Dir",
+        speedString: "Vit",
+      },
+      data: vel,
+      minVelocity: 0,
+      maxVelocity: 12,
+      velocityScale: 0.02,
+      particleAge: 160,
+      lineWidth: 3.2,
+      particleMultiplier: 1 / 22,
+      frameRate: 22,
+      opacity: 1,
+      colorScale: [
+        "#4cc3ff",
+        "#5ee0c0",
+        "#c8f06a",
+        "#ffe14a",
+        "#ff9f3c",
+        "#ff5a3c",
+        "#e02020",
+      ],
     });
-  }
-
-  function windPopup(w, meta) {
-    const gust = w.gust_kn != null ? ` · rafales ${esc(w.gust_kn)} kn` : "";
-    const src = [meta.model || "GFS", meta.height_m != null ? `${meta.height_m} m` : "10 m"]
-      .filter(Boolean)
-      .join(" ");
-    return (
-      `<strong>${esc(w.speed_kn)} kn</strong> depuis ${esc(w.dir_from)}°` +
-      `${gust}<br><span class="meta">${esc(src)} · Open-Meteo</span>`
-    );
   }
 
   function boatPopup(b, title) {

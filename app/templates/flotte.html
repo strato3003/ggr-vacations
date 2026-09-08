@@ -3,6 +3,7 @@
 {% block extra_head %}
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
       integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+<link rel="stylesheet" href="/static/vendor/leaflet-velocity.css">
 {% endblock %}
 {% block content %}
 <section class="intro">
@@ -16,21 +17,28 @@
 <div class="fleet-box">
   <p class="qrg__v">{{ fleet.fmt }}</p>
   <p class="meta">{{ fleet.label }} · source {{ fleet.source }} · {{ fleet.n_boats }} bateaux</p>
+  {% if wind.at_centroid %}
+  <p class="meta">Vent GFS 10&nbsp;m au centroïde :
+    <strong>{{ wind.at_centroid.speed_kn }} kn</strong>
+    depuis {{ wind.at_centroid.dir_from }}°
+    {% if wind.at_centroid.gust_kn %} · rafales {{ wind.at_centroid.gust_kn }} kn{% endif %}
+  </p>
+  {% endif %}
   {% if fleet.warning %}<p class="err">{{ fleet.warning }}</p>{% endif %}
 </div>
 
 <figure class="ggr-map-fig">
   <div id="ggr-map" class="ggr-map" role="region" aria-label="Carte des bateaux GGR et des KiwiSDR"></div>
   <figcaption class="ggr-map-cap">
-    Vue type <strong>Yellowbrick</strong> : bateaux (cap), KiwiSDR, vent GFS 10&nbsp;m
-    (Open-Meteo, nœuds). Noms et vent basculables sur la carte.
+    Vue type <strong>Yellowbrick</strong> : bateaux (cap), KiwiSDR, champ de vent animé
+    (GFS 10&nbsp;m, Open-Meteo, nœuds). Noms et vent basculables.
     <a href="https://yb.tl/{{ fleet.race_id or 'ggr2026' }}" rel="noreferrer">Tracker officiel</a>
   </figcaption>
   <ul class="ggr-map-legend">
     <li><span class="dot dot--boat"></span> Bateau (cap)</li>
     <li><span class="dot dot--cent"></span> Centroïde</li>
     <li><span class="dot dot--sdr"></span> KiwiSDR</li>
-    <li><span class="dot dot--wind"></span> Vent (vers où il souffle)</li>
+    <li><span class="dot dot--wind"></span> Vent (particules)</li>
     <li>
       <label class="ggr-map-toggle">
         <input type="checkbox" id="ggr-toggle-noms" checked>
@@ -84,5 +92,6 @@
 {% block extra_js %}
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
         integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+<script src="/static/vendor/leaflet-velocity.min.js"></script>
 <script src="/static/js/flotte-map.js"></script>
 {% endblock %}
