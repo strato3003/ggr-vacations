@@ -27,8 +27,11 @@ def mux_screencast(video_webm: Path, audio_wav: Path, dest_mp4: Path) -> Path | 
         "-i",
         str(video_webm),
     ]
-    if audio_wav.exists():
-        cmd += ["-i", str(audio_wav), "-shortest"]
+    has_wav = audio_wav.is_file() and audio_wav.stat().st_size > 64
+    if has_wav:
+        cmd += ["-i", str(audio_wav), "-shortest", "-c:a", "aac", "-b:a", "96k"]
+    else:
+        cmd += ["-an"]
     cmd += [
         "-c:v",
         "libx264",
@@ -38,10 +41,6 @@ def mux_screencast(video_webm: Path, audio_wav: Path, dest_mp4: Path) -> Path | 
         "veryfast",
         "-crf",
         "23",
-        "-c:a",
-        "aac",
-        "-b:a",
-        "96k",
         "-movflags",
         "+faststart",
         str(dest_mp4),

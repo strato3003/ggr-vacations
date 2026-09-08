@@ -135,19 +135,7 @@ async def run_vacation(cfg: dict[str, Any] | None = None, *, reason: str = "sche
                 },
             }
             wav = session_dir / f"audio-{ch['id']}.wav"
-            jobs.append(
-                record_kiwi_wav(
-                    kiwi,
-                    ch["freq_khz"],
-                    wav,
-                    duration,
-                    mode=str(radio.get("mode") or "usb"),
-                    low_hz=int(filt.get("low_hz") or 300),
-                    high_hz=int(filt.get("high_hz") or 2700),
-                    ident=ident,
-                )
-            )
-            ch_out["audio"] = str(wav.name)
+            ch_out["audio_file"] = str(wav.name)
             if ch.get("screencast"):
                 webm = session_dir / f"screencast-{ch['id']}.webm"
                 overlay = {
@@ -166,9 +154,23 @@ async def run_vacation(cfg: dict[str, Any] | None = None, *, reason: str = "sche
                         zoom=int(ch.get("zoom") or 10),
                         viewport=viewport,
                         overlay=overlay,
+                        snd_wav=wav,
                     )
                 )
                 ch_out["screencast_raw"] = str(webm.name)
+            else:
+                jobs.append(
+                    record_kiwi_wav(
+                        kiwi,
+                        ch["freq_khz"],
+                        wav,
+                        duration,
+                        mode=str(radio.get("mode") or "usb"),
+                        low_hz=int(filt.get("low_hz") or 300),
+                        high_hz=int(filt.get("high_hz") or 2700),
+                        ident=ident,
+                    )
+                )
             meta["channels"].append(ch_out)
 
         results = await asyncio.gather(*jobs, return_exceptions=True)
@@ -177,7 +179,12 @@ async def run_vacation(cfg: dict[str, Any] | None = None, *, reason: str = "sche
         ]
 
         for ch in meta["channels"]:
-            wav = session_dir / ch["audio"]
+            wav = session_dir / (ch.get("audio_file") or f"audio-{ch['id']}.wav")
+            if wav.is_file() and wav.stat().st_size > 64:
+                ch["audio"] = wav.name
+            else:
+                ch.pop("audio", None)
+            ch.pop("audio_file", None)
             raw = session_dir / ch.get("screencast_raw", "")
             if ch.get("screencast_raw") and raw.exists():
                 mp4 = session_dir / f"screencast-{ch['id']}.mp4"
@@ -229,9 +236,6 @@ async def run_test_20m(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
     session_dir.mkdir(parents=True, exist_ok=True)
     plan = [(f, SCAN_20M_DWELL_S) for f in SCAN_20M_KHZ]
     duration = sum(d for _, d in plan)
-    radio = cfg.get("radio") or {}
-    filt = radio.get("usb_filter") or {}
-    ident = (cfg.get("sdr") or {}).get("ident_user") or "ggr-vacations"
     viewport = (cfg.get("sdr") or {}).get("viewport") or {"width": 1280, "height": 800}
     meta: dict[str, Any] = {
         "id": vid,
@@ -253,6 +257,48 @@ async def run_test_20m(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
             raise RuntimeError("Aucun KiwiSDR disponible pour le scan 20 m")
         kiwi = ranked[0]
         meta["kiwis_ranked"] = ranked[:8]
+        last_err = None
+        wav = session_dir / "audio-tx.wav"
+        webm = session_dir / "screencast-tx.webm"
+        results = []
+        used = None
+        for kiwi in ranked[:4]:
+            overlay = {
+                "when": started.strftime("%Y-%m-%d %H:%M"),
+                "channel": "Test scan 20 m",
+                "freq": f"{SCAN_20M_KHZ[0]:.2f} kHz USB",
+                "kiwi": kiwi.get("name"),
+            }
+            wav.unlink(missing_ok=True)
+            webm.unlink(missing_ok=True)
+            try:
+                results = [
+                    await record_screencast(
+                        kiwi,
+                        SCAN_20M_KHZ[0],
+                        webm,
+                        duration,
+                        mode="usb",
+                        zoom=8,
+                        viewport=viewport,
+                        overlay=overlay,
+                        freq_plan=plan,
+                        snd_wav=wav,
+                    )
+                ]
+            except Exception as exc:
+                last_err = str(exc)
+                log.warning("Kiwi %s : %s", kiwi.get("name"), exc)
+                continue
+            raw = results[0]
+            if isinstance(raw, dict) and raw.get("snd_packets"):
+                used = kiwi
+                break
+            last_err = raw.get("error") if isinstance(raw, dict) else str(raw)
+            log.warning("Scan 20 m sans audio sur %s : %s", kiwi.get("name"), last_err)
+        if not used:
+            raise RuntimeError(last_err or "Aucun KiwiSDR n’a fourni d’audio")
+        kiwi = used
         ch_out = {
             "id": "tx",
             "kind": "scan",
@@ -260,7 +306,6 @@ async def run_test_20m(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
             "label": "Scan 20 m USB (14,19–14,275 MHz)",
             "zoom": 8,
             "screencast": True,
-            "audio": "audio-tx.wav",
             "screencast_raw": "screencast-tx.webm",
             "kiwi": {
                 "name": kiwi.get("name"),
@@ -271,42 +316,11 @@ async def run_test_20m(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
             },
         }
         meta["channels"].append(ch_out)
-        overlay = {
-            "when": started.strftime("%Y-%m-%d %H:%M"),
-            "channel": "Test scan 20 m",
-            "freq": f"{SCAN_20M_KHZ[0]:.2f} kHz USB",
-            "kiwi": kiwi.get("name"),
-        }
-        wav = session_dir / "audio-tx.wav"
-        webm = session_dir / "screencast-tx.webm"
-        results = await asyncio.gather(
-            record_kiwi_wav(
-                kiwi,
-                SCAN_20M_KHZ[0],
-                wav,
-                duration,
-                mode="usb",
-                low_hz=int(filt.get("low_hz") or 300),
-                high_hz=int(filt.get("high_hz") or 2700),
-                ident=ident,
-                freq_plan=plan,
-            ),
-            record_screencast(
-                kiwi,
-                SCAN_20M_KHZ[0],
-                webm,
-                duration,
-                mode="usb",
-                zoom=8,
-                viewport=viewport,
-                overlay=overlay,
-                freq_plan=plan,
-            ),
-            return_exceptions=True,
-        )
         meta["raw_results"] = [
             (repr(r) if isinstance(r, Exception) else r) for r in results
         ]
+        if wav.is_file() and wav.stat().st_size > 64:
+            ch_out["audio"] = wav.name
         if webm.exists():
             mp4 = session_dir / "screencast-tx.mp4"
             if mux_screencast(webm, wav, mp4):

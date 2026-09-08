@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 
 from recorder.fleet import parse_positions3
 from recorder.geo import centroid, fmt_latlon, haversine_km
+from recorder.kiwi_audio import ImaAdpcmDecoder, wav_from_snd_frames, _pcm_from_snd, _ws_uris
 from recorder.kiwi_list import parse_kiwi_directory, score_kiwi
 from recorder.session import next_vacation_utc, vacation_id
 
@@ -78,3 +79,30 @@ def test_score_prefers_closer_higher_snr():
     close = {"distance_km": 400, "snr_hf": 30, "free_slots": 4}
     far = {"distance_km": 8000, "snr_hf": 10, "free_slots": 1}
     assert score_kiwi(close, 0, 0) > score_kiwi(far, 0, 0)
+
+
+def test_kiwi_snd_uri_uses_ws_kiwi_path():
+    uris = _ws_uris({"host": "g3sdr.com", "port": 8074, "https": False})
+    assert uris[0].startswith("ws://g3sdr.com:8074/ws/kiwi/")
+    assert uris[0].endswith("/SND")
+    assert "/ws/kiwi/" not in uris[1]
+
+
+def test_pcm_from_snd_uncompressed_be():
+    # flags, seq(3), smeter(2) puis un échantillon s16be = 0x0100
+    body = bytes([0, 0, 0, 0, 0, 0x32, 0x00, 0x01, 0x00])
+    pcm = _pcm_from_snd(body, ImaAdpcmDecoder())
+    assert pcm == struct.pack("<h", 256)
+
+
+def test_ima_adpcm_two_samples_per_byte():
+    dec = ImaAdpcmDecoder()
+    pcm = dec.decode(bytes([0x00]))
+    assert len(pcm) == 4
+
+
+def test_wav_from_snd_frames(tmp_path):
+    body = bytes([0, 0, 0, 0, 0, 0x32, 0x00, 0x01, 0x00])
+    dest = tmp_path / "t.wav"
+    assert wav_from_snd_frames([b"SND" + body], dest)
+    assert dest.stat().st_size > 44
