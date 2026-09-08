@@ -16,3 +16,5 @@ recordings/
 !.env.example
 playwright-report/
 k8s/generated/
+# Généré par scripts/update.sh (copie de config/default.yaml)
+k8s/config.yaml

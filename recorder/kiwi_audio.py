@@ -76,6 +76,7 @@ async def record_kiwi_wav(
     high_hz: int = 2700,
     ident: str = "ggr-vacations",
     on_rssi: Any | None = None,
+    freq_plan: list[tuple[float, float]] | None = None,
 ) -> dict[str, Any]:
     """Enregistre un WAV mono 12 kHz depuis un KiwiSDR.
 
@@ -83,19 +84,24 @@ async def record_kiwi_wav(
     """
     dest.parent.mkdir(parents=True, exist_ok=True)
     uri = _ws_uri(kiwi)
+    plan = freq_plan or [(freq_khz, duration_s)]
+    current_freq = plan[0][0]
     info: dict[str, Any] = {
         "kiwi": kiwi.get("name"),
         "url": kiwi.get("url"),
-        "freq_khz": freq_khz,
+        "freq_khz": current_freq,
         "mode": mode,
         "path": str(dest),
         "ok": False,
+        "scan": [{"freq_khz": f, "dwell_s": d} for f, d in plan],
     }
-    deadline = time.monotonic() + duration_s
+    deadline = time.monotonic() + sum(d for _, d in plan)
     pcm_chunks: list[bytes] = []
     frames = 0
     last_keep = 0.0
     last_rssi: float | None = None
+    step_i = 0
+    step_until = time.monotonic() + plan[0][1]
 
     try:
         async with websockets.connect(
@@ -113,7 +119,17 @@ async def record_kiwi_wav(
                 try:
                     message = await asyncio.wait_for(ws.recv(), timeout=5)
                 except TimeoutError:
+                    now = time.monotonic()
                     await ws.send("SET keepalive")
+                    last_keep = now
+                    if step_i + 1 < len(plan) and now >= step_until:
+                        step_i += 1
+                        current_freq, dwell = plan[step_i]
+                        step_until = now + dwell
+                        await ws.send(
+                            f"SET mod={mode} low_cut={low_hz} high_cut={high_hz} freq={current_freq:.3f}"
+                        )
+                        log.info("Audio QSY %.3f kHz USB", current_freq)
                     continue
                 except ConnectionClosed:
                     break
@@ -122,6 +138,14 @@ async def record_kiwi_wav(
                 if now - last_keep >= 1.0:
                     await ws.send("SET keepalive")
                     last_keep = now
+                if step_i + 1 < len(plan) and now >= step_until:
+                    step_i += 1
+                    current_freq, dwell = plan[step_i]
+                    step_until = now + dwell
+                    await ws.send(
+                        f"SET mod={mode} low_cut={low_hz} high_cut={high_hz} freq={current_freq:.3f}"
+                    )
+                    log.info("Audio QSY %.3f kHz USB", current_freq)
 
                 if isinstance(message, str) or (isinstance(message, bytes) and message[:3] == b"MSG"):
                     params = _parse_msg(message)
@@ -134,7 +158,7 @@ async def record_kiwi_wav(
                         await ws.send("SET geo=ggr-vacations")
                         await ws.send("SET compression=0")
                         await ws.send(
-                            f"SET mod={mode} low_cut={low_hz} high_cut={high_hz} freq={freq_khz:.3f}"
+                            f"SET mod={mode} low_cut={low_hz} high_cut={high_hz} freq={current_freq:.3f}"
                         )
                         await ws.send("SET agc=1 hang=0 thresh=-100 slope=6 decay=1000 manGain=50")
                         await ws.send("SET AR OK in=12000 out=12000")
@@ -155,7 +179,7 @@ async def record_kiwi_wav(
                     frames += len(chunk) // 2
     except Exception as exc:
         info["error"] = str(exc)
-        log.warning("Audio Kiwi %s @ %.3f kHz : %s", kiwi.get("name"), freq_khz, exc)
+        log.warning("Audio Kiwi %s @ %.3f kHz : %s", kiwi.get("name"), current_freq, exc)
         if not pcm_chunks:
             return info
 

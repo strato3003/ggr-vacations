@@ -12,7 +12,7 @@ COPY app ./app
 COPY recorder ./recorder
 COPY config ./config
 
-RUN pip install --no-cache-dir . \
+RUN pip install --no-cache-dir -e . \
     && mkdir -p /data /config \
     && chown -R pwuser:pwuser /app /data
 

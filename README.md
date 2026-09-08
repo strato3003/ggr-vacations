@@ -1,4 +1,4 @@
-# GGR Vacations 0.1.1
+# GGR Vacations 0.1.5
 
 Archives des **vacations HF** entre le radio-club **F6KUF** et les bateaux de la flotte **Golden Globe Race**.
 
@@ -19,9 +19,8 @@ Déploiement prévu sur un VPS **Ubuntu 26.04** avec **k3s**, dans le namespace 
 ## Mise à jour serveur (k3s)
 
 ```bash
-sudo git clone https://github.com/<compte>/ggr-vacations.git /opt/ggr-vacations
 cd /opt/ggr-vacations
-sudo ./scripts/update.sh local     # premier déploiement : build Docker + import k3s
+./scripts/update.sh local     # sudo demandé pour Docker et k3s
 ```
 
 Ensuite, après un `git push` sur `main` :
@@ -32,6 +31,14 @@ sudo ./scripts/update.sh           # tire GHCR si origin GitHub, sinon rebuild
 ```
 
 L’UI est exposée en **NodePort 30080** : `http://<IP-du-VPS>:30080`.
+
+Test scan 20 m (environ 2,5 min, USB 14,19–14,275 MHz) après déploiement de cette version :
+
+```bash
+sudo k3s kubectl -n ggr-vacations exec deploy/ggr-vacations -- python -m recorder.session --test-20m
+```
+
+La carte **Test scan 20 m** apparaît ensuite sur l’accueil.
 
 ```bash
 sudo k3s kubectl -n ggr-vacations get pods,svc,pvc

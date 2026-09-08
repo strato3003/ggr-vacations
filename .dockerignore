@@ -7,6 +7,7 @@ recordings
 .pytest_cache
 .github
 *.md
+!README.md
 tests
 .env
 .env.*

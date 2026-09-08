@@ -4,9 +4,10 @@
 <article class="vac">
   <header class="vac__head">
     <p class="crumb"><a href="/">← Vacations</a></p>
-    <h1>{{ vacation.started_at | when }}</h1>
+    <h1>{{ vacation.title or (vacation.started_at | when) }}</h1>
     <p class="meta">
-      {{ vacation.club.callsign if vacation.club else club.callsign }}
+      {% if vacation.is_test %}<span class="badge">Test scan 20 m USB</span>{% endif %}
+      {{ vacation.club.callsign if vacation.club else club_callsign }}
       · SDR selon {{ vacation.fleet.label if vacation.fleet else 'flotte' }}
       {% if vacation.fleet %}({{ vacation.fleet.fmt }}){% endif %}
       · {{ vacation.status }}

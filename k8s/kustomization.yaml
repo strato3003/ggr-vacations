@@ -9,7 +9,7 @@ resources:
 configMapGenerator:
   - name: ggr-vacations-config
     files:
-      - config.yaml=../config/default.yaml
+      - config.yaml
 generatorOptions:
   disableNameSuffixHash: true
 images:

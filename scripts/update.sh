@@ -12,9 +12,28 @@ cd "$ROOT"
 KNS="ggr-vacations"
 MODE="${1:-auto}"
 
+as_root() {
+  if [[ "$(id -u)" -eq 0 ]]; then
+    "$@"
+  else
+    sudo "$@"
+  fi
+}
+
+kc() {
+  if command -v k3s >/dev/null 2>&1; then
+    as_root k3s kubectl "$@"
+  else
+    kubectl "$@"
+  fi
+}
+
 if [[ -d .git ]]; then
   git pull --ff-only || true
 fi
+
+# Kustomize n'autorise que les fichiers sous k8s/ (restriction de sécurité).
+cp "$ROOT/config/default.yaml" "$ROOT/k8s/config.yaml"
 
 image_from_origin() {
   local remote owner repo
@@ -28,19 +47,12 @@ image_from_origin() {
 
 build_local() {
   local img="ggr-vacations:local"
-  if command -v docker >/dev/null 2>&1; then
-    docker build -t "$img" "$ROOT"
-    if command -v k3s >/dev/null 2>&1; then
-      docker save "$img" | k3s ctr images import -
-    elif sudo -n true 2>/dev/null; then
-      docker save "$img" | sudo k3s ctr images import -
-    else
-      docker save "$img" | sudo k3s ctr images import -
-    fi
-  else
+  if ! command -v docker >/dev/null 2>&1; then
     echo "docker est requis pour le build local (ou utilisez : $0 pull)" >&2
     exit 1
   fi
+  as_root docker build -t "$img" "$ROOT"
+  as_root docker save "$img" | as_root k3s ctr images import -
   printf '%s\n' "$img"
 }
 
@@ -66,16 +78,16 @@ case "$MODE" in
     ;;
 esac
 
-kubectl apply -f "$ROOT/k8s/namespace.yaml"
-kubectl apply -k "$ROOT/k8s"
-kubectl -n "$KNS" set image "deploy/ggr-vacations" "web=${IMAGE}"
+kc apply -f "$ROOT/k8s/namespace.yaml"
+kc apply -k "$ROOT/k8s"
+kc -n "$KNS" set image "deploy/ggr-vacations" "web=${IMAGE}"
 
 if [[ "$IMAGE" == ghcr.io/* ]]; then
-  kubectl -n "$KNS" patch deploy ggr-vacations --type json \
+  kc -n "$KNS" patch deploy ggr-vacations --type json \
     -p '[{"op":"replace","path":"/spec/template/spec/containers/0/imagePullPolicy","value":"Always"}]'
 fi
 
-kubectl -n "$KNS" rollout restart "deploy/ggr-vacations"
-kubectl -n "$KNS" rollout status "deploy/ggr-vacations" --timeout=180s
+kc -n "$KNS" rollout restart "deploy/ggr-vacations"
+kc -n "$KNS" rollout status "deploy/ggr-vacations" --timeout=180s
 echo "Déployé : ${IMAGE}"
 echo "UI : http://<IP-du-VPS>:30080"

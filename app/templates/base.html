@@ -10,7 +10,7 @@
   <header class="mast">
     <div class="mast__brand">
       <a href="/" class="logo">{{ app_name }} <span class="ver">{{ version }}</span></a>
-      <p class="tag">Vacations HF · {{ club.callsign }} · flotte Golden Globe Race</p>
+      <p class="tag">Vacations HF · {{ club_callsign }} · flotte Golden Globe Race</p>
     </div>
     <nav class="nav">
       <a href="/">Vacations</a>
@@ -21,7 +21,7 @@
 
   <section class="qrg-bar" aria-label="Fréquences de vacation">
     <div class="qrg">
-      <span class="qrg__k">TX {{ club.callsign }}</span>
+      <span class="qrg__k">TX {{ club_callsign }}</span>
       <span class="qrg__v">14.135 MHz USB</span>
       <span class="qrg__h">± 2–3 kHz · 18:00 TU</span>
     </div>
@@ -35,7 +35,7 @@
     </div>
     <div class="qrg qrg--next">
       <span class="qrg__k">Prochain bulletin</span>
-      <span class="qrg__v" id="countdown" data-iso="{{ bulletin_utc.isoformat() }}">{{ bulletin_utc.strftime('%d/%m %H:%M') }} TU</span>
+      <span class="qrg__v" id="countdown" data-iso="{{ bulletin_iso }}">{{ bulletin_label }} TU</span>
       {% if recording %}<span class="live">Enregistrement en cours</span>{% endif %}
     </div>
   </section>

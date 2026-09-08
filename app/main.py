@@ -12,7 +12,7 @@ from pathlib import Path
 from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
+from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 from app import store
 from recorder.config import load_config, version
@@ -29,6 +29,7 @@ CFG = load_config()
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    log.info("Templates : %s → %s", ROOT / "templates", list((ROOT / "templates").glob("*.html")))
     scheduler = build_scheduler(CFG)
     scheduler.start()
     try:
@@ -38,24 +39,45 @@ async def lifespan(_app: FastAPI):
 
 
 app = FastAPI(title="GGR Vacations", version=version(CFG), lifespan=lifespan)
-app.mount("/static", StaticFiles(directory=ROOT / "static"), name="static")
-templates = Jinja2Templates(directory=str(ROOT / "templates"))
-templates.env.filters["when"] = store.iso_to_label
+app.mount("/static", StaticFiles(directory=str(ROOT / "static")), name="static")
+jinja = Environment(
+    loader=FileSystemLoader(str(ROOT / "templates")),
+    autoescape=select_autoescape(["html", "xml"]),
+)
+jinja.filters["when"] = store.iso_to_label
+
+
+def render(request: Request, name: str, **extra) -> HTMLResponse:
+    """Rendu Jinja direct — Starlette TemplateResponse passe parfois le context dict comme nom de template."""
+    try:
+        ctx = _ctx(request, **extra)
+        html = jinja.get_template(name).render(**ctx)
+        return HTMLResponse(html)
+    except Exception as exc:
+        log.exception("Rendu %s", name)
+        return HTMLResponse(
+            f"<!doctype html><pre>Erreur interne : {type(exc).__name__}: {exc}</pre>",
+            status_code=500,
+        )
 
 
 def _ctx(request: Request, **extra):
     nxt = next_vacation_utc(CFG)
     bulletin = _bulletin_utc(CFG)
+    club = CFG.get("club") or {}
+    schedule = CFG.get("schedule") or {}
     return {
-        "request": request,
         "app_name": (CFG.get("web") or {}).get("title") or "GGR Vacations",
         "version": version(CFG),
-        "club": CFG.get("club") or {},
+        "club": club,
+        "club_callsign": club.get("callsign") or "F6KUF",
         "radio": CFG.get("radio") or {},
-        "schedule": CFG.get("schedule") or {},
+        "schedule": schedule,
+        "schedule_lead": schedule.get("lead_minutes") or 10,
         "next_start": nxt,
         "next_start_iso": nxt.isoformat(),
-        "bulletin_utc": bulletin,
+        "bulletin_iso": bulletin.isoformat(),
+        "bulletin_label": bulletin.strftime("%d/%m %H:%M"),
         "recording": store.recording_in_progress(CFG),
         **extra,
     }
@@ -78,10 +100,15 @@ async def health():
     return {"ok": True, "version": version(CFG), "recording": store.recording_in_progress(CFG)}
 
 
+@app.get("/ping", response_class=HTMLResponse)
+async def ping():
+    return HTMLResponse("<!doctype html><p>ggr-vacations ping</p>")
+
+
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
     vacations = store.list_vacations(CFG)
-    return templates.TemplateResponse("index.html", _ctx(request, vacations=vacations))
+    return render(request, "index.html", vacations=vacations)
 
 
 @app.get("/vacations/{vacation_id}", response_class=HTMLResponse)
@@ -89,19 +116,26 @@ async def vacation_page(request: Request, vacation_id: str):
     meta = store.get_vacation(vacation_id, CFG)
     if not meta:
         raise HTTPException(404, "Vacation introuvable")
-    return templates.TemplateResponse("vacation.html", _ctx(request, vacation=meta))
+    return render(request, "vacation.html", vacation=meta)
 
 
 @app.get("/flotte", response_class=HTMLResponse)
 async def flotte_page(request: Request):
-    fleet = await fetch_fleet(CFG)
-    kiwis = await fetch_ranked_kiwis(CFG, fleet["lat"], fleet["lon"], limit=8)
-    return templates.TemplateResponse("flotte.html", _ctx(request, fleet=fleet, kiwis=kiwis))
+    try:
+        fleet = await fetch_fleet(CFG)
+        kiwis = await fetch_ranked_kiwis(CFG, fleet["lat"], fleet["lon"], limit=8)
+    except Exception as exc:
+        log.exception("Page flotte")
+        return HTMLResponse(
+            f"<!doctype html><pre>Erreur flotte : {type(exc).__name__}: {exc}</pre>",
+            status_code=500,
+        )
+    return render(request, "flotte.html", fleet=fleet, kiwis=kiwis)
 
 
 @app.get("/a-propos", response_class=HTMLResponse)
 async def about_page(request: Request):
-    return templates.TemplateResponse("about.html", _ctx(request))
+    return render(request, "about.html")
 
 
 @app.get("/media/{vacation_id}/{filename}")

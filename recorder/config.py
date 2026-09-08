@@ -7,6 +7,8 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
+from importlib.metadata import PackageNotFoundError, version as pkg_version
+
 import yaml
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -53,5 +55,9 @@ def data_dir(cfg: dict[str, Any] | None = None) -> Path:
 
 
 def version(cfg: dict[str, Any] | None = None) -> str:
-    cfg = cfg or load_config()
-    return str(cfg.get("version") or "0.1.1")
+    """Version affichée = paquet installé (pyproject), pas le ConfigMap k3s éventuellement périmé."""
+    try:
+        return pkg_version("ggr-vacations")
+    except PackageNotFoundError:
+        cfg = cfg or {}
+        return str(cfg.get("version") or "0.1.5")

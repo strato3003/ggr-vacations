@@ -48,6 +48,7 @@ async def record_screencast(
     zoom: int = 10,
     viewport: dict[str, int] | None = None,
     overlay: dict[str, Any] | None = None,
+    freq_plan: list[tuple[float, float]] | None = None,
 ) -> dict[str, Any]:
     """Enregistre la page KiwiSDR en WebM (vidéo silencieuse, audio muxé ensuite)."""
     from playwright.async_api import async_playwright
@@ -75,12 +76,27 @@ async def record_screencast(
         page = await context.new_page()
         try:
             await page.goto(url, wait_until="domcontentloaded", timeout=60_000)
-            await page.wait_for_timeout(8_000)
+            await page.wait_for_timeout(5_000)
             if overlay:
                 html = json.dumps(_overlay_html(overlay))
                 await page.evaluate(f"window.__GGR_OVERLAY_HTML = {html};")
                 await page.evaluate(OVERLAY_JS)
-            await page.wait_for_timeout(int(duration_s * 1000))
+            if freq_plan:
+                for idx, (step_freq, dwell) in enumerate(freq_plan):
+                    if idx > 0:
+                        await page.goto(
+                            kiwi_tune_url(kiwi, step_freq, mode=mode, zoom=zoom),
+                            wait_until="domcontentloaded",
+                            timeout=60_000,
+                        )
+                        if overlay:
+                            overlay = {**overlay, "freq": f"{step_freq:.2f} kHz USB"}
+                            html = json.dumps(_overlay_html(overlay))
+                            await page.evaluate(f"window.__GGR_OVERLAY_HTML = {html};")
+                            await page.evaluate(OVERLAY_JS)
+                    await page.wait_for_timeout(int(dwell * 1000))
+            else:
+                await page.wait_for_timeout(int(duration_s * 1000))
             info["ok"] = True
         except Exception as exc:
             info["error"] = str(exc)

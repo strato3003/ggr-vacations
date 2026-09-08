@@ -210,6 +210,130 @@ async def run_vacation(cfg: dict[str, Any] | None = None, *, reason: str = "sche
             pass
 
 
+# Segment téléphonie 20 m (USB, IARU R1 ~ 14,150–14,350 kHz) — scan pour capter un QSO.
+SCAN_20M_KHZ = (14190.0, 14200.0, 14210.0, 14220.0, 14230.0, 14245.0, 14260.0, 14275.0)
+SCAN_20M_DWELL_S = 20.0
+
+
+async def run_test_20m(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Scan USB 20 m + screencast, archivé comme une vacation visible dans l’UI."""
+    cfg = cfg or load_config()
+    root = data_dir(cfg)
+    lock = root / LOCK_NAME
+    if lock.exists():
+        raise RuntimeError("Un enregistrement est déjà en cours")
+    lock.write_text(datetime.now(timezone.utc).isoformat(), encoding="utf-8")
+    started = datetime.now(timezone.utc)
+    vid = started.strftime("%Y-%m-%dT%H%MZ") + "-20m"
+    session_dir = root / "vacations" / vid
+    session_dir.mkdir(parents=True, exist_ok=True)
+    plan = [(f, SCAN_20M_DWELL_S) for f in SCAN_20M_KHZ]
+    duration = sum(d for _, d in plan)
+    radio = cfg.get("radio") or {}
+    filt = radio.get("usb_filter") or {}
+    ident = (cfg.get("sdr") or {}).get("ident_user") or "ggr-vacations"
+    viewport = (cfg.get("sdr") or {}).get("viewport") or {"width": 1280, "height": 800}
+    meta: dict[str, Any] = {
+        "id": vid,
+        "status": "running",
+        "reason": "test-20m",
+        "title": "Test scan 20 m USB",
+        "version": version(cfg),
+        "club": cfg.get("club"),
+        "started_at": started.isoformat(),
+        "scan_khz": list(SCAN_20M_KHZ),
+        "channels": [],
+    }
+    _write_meta(session_dir, meta)
+    try:
+        fleet = await fetch_fleet(cfg)
+        meta["fleet"] = fleet
+        ranked = await fetch_ranked_kiwis(cfg, fleet["lat"], fleet["lon"])
+        if not ranked:
+            raise RuntimeError("Aucun KiwiSDR disponible pour le scan 20 m")
+        kiwi = ranked[0]
+        meta["kiwis_ranked"] = ranked[:8]
+        ch_out = {
+            "id": "tx",
+            "kind": "scan",
+            "freq_khz": SCAN_20M_KHZ[0],
+            "label": "Scan 20 m USB (14,19–14,275 MHz)",
+            "zoom": 8,
+            "screencast": True,
+            "audio": "audio-tx.wav",
+            "screencast_raw": "screencast-tx.webm",
+            "kiwi": {
+                "name": kiwi.get("name"),
+                "url": kiwi.get("url"),
+                "distance_km": kiwi.get("distance_km"),
+                "fmt": kiwi.get("fmt"),
+                "snr_hf": kiwi.get("snr_hf"),
+            },
+        }
+        meta["channels"].append(ch_out)
+        overlay = {
+            "when": started.strftime("%Y-%m-%d %H:%M"),
+            "channel": "Test scan 20 m",
+            "freq": f"{SCAN_20M_KHZ[0]:.2f} kHz USB",
+            "kiwi": kiwi.get("name"),
+        }
+        wav = session_dir / "audio-tx.wav"
+        webm = session_dir / "screencast-tx.webm"
+        results = await asyncio.gather(
+            record_kiwi_wav(
+                kiwi,
+                SCAN_20M_KHZ[0],
+                wav,
+                duration,
+                mode="usb",
+                low_hz=int(filt.get("low_hz") or 300),
+                high_hz=int(filt.get("high_hz") or 2700),
+                ident=ident,
+                freq_plan=plan,
+            ),
+            record_screencast(
+                kiwi,
+                SCAN_20M_KHZ[0],
+                webm,
+                duration,
+                mode="usb",
+                zoom=8,
+                viewport=viewport,
+                overlay=overlay,
+                freq_plan=plan,
+            ),
+            return_exceptions=True,
+        )
+        meta["raw_results"] = [
+            (repr(r) if isinstance(r, Exception) else r) for r in results
+        ]
+        if webm.exists():
+            mp4 = session_dir / "screencast-tx.mp4"
+            if mux_screencast(webm, wav, mp4):
+                ch_out["video"] = mp4.name
+                thumb = session_dir / "thumb-tx.jpg"
+                if thumbnail(mp4, thumb, at_s=30):
+                    ch_out["thumb"] = thumb.name
+                webm.unlink(missing_ok=True)
+        meta["status"] = "complete"
+        meta["ended_at"] = datetime.now(timezone.utc).isoformat()
+        meta["fleet_fmt"] = fleet.get("fmt") or fmt_latlon(fleet["lat"], fleet["lon"])
+        log.info("Test 20 m %s terminé", vid)
+        return meta
+    except Exception as exc:
+        meta["status"] = "error"
+        meta["error"] = str(exc)
+        meta["ended_at"] = datetime.now(timezone.utc).isoformat()
+        log.exception("Test 20 m %s en échec", vid)
+        return meta
+    finally:
+        _write_meta(session_dir, meta)
+        try:
+            lock.unlink()
+        except OSError:
+            pass
+
+
 def _write_meta(session_dir: Path, meta: dict[str, Any]) -> None:
     path = session_dir / "metadata.json"
     tmp = session_dir / "metadata.json.tmp"
@@ -246,11 +370,18 @@ def purge_old(cfg: dict[str, Any] | None = None) -> int:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Enregistrer une vacation HF GGR / F6KUF")
-    parser.add_argument("--once", action="store_true", help="Lancer un enregistrement immédiat")
+    parser.add_argument("--once", action="store_true", help="Lancer un enregistrement immédiat (vacation F6KUF)")
+    parser.add_argument("--test-20m", action="store_true", help="Scan USB 20 m (test), puis archive dans l’UI")
     parser.add_argument("--config", default=os.environ.get("GGR_CONFIG"))
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     cfg = load_config(args.config)
+    if args.test_20m:
+        meta = asyncio.run(run_test_20m(cfg))
+        print(json.dumps({"id": meta.get("id"), "status": meta.get("status"), "error": meta.get("error")}, ensure_ascii=False))
+        if meta.get("status") != "complete":
+            raise SystemExit(1)
+        return
     if args.once:
         meta = asyncio.run(run_vacation(cfg, reason="manual"))
         print(json.dumps({"id": meta.get("id"), "status": meta.get("status"), "error": meta.get("error")}, ensure_ascii=False))

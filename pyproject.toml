@@ -1,6 +1,6 @@
 [project]
 name = "ggr-vacations"
-version = "0.1.1"
+version = "0.1.5"
 description = "Enregistrement des vacations HF F6KUF / flotte Golden Globe Race"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -32,6 +32,9 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 include = ["app*", "recorder*"]
+
+[tool.setuptools.package-data]
+app = ["templates/*.html", "static/css/*", "static/js/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
