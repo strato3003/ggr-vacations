@@ -12,6 +12,9 @@
 
   const boats = (data.boats || []).filter((b) => Number.isFinite(b.lat) && Number.isFinite(b.lon));
   const kiwis = (data.kiwis || []).filter((k) => Number.isFinite(k.lat) && Number.isFinite(k.lon));
+  const winds = ((data.wind && data.wind.points) || []).filter(
+    (w) => Number.isFinite(w.lat) && Number.isFinite(w.lon)
+  );
   const cent = data.centroid || {};
 
   const map = L.map(el, { scrollWheelZoom: true, worldCopyJump: true });
@@ -37,6 +40,7 @@
 
   const boatLayer = L.layerGroup();
   const sdrLayer = L.layerGroup();
+  const windLayer = L.layerGroup();
   const bounds = [];
 
   boats.forEach((b) => {
@@ -101,12 +105,31 @@
       .addTo(sdrLayer);
   });
 
+  winds.forEach((w) => {
+    L.marker([w.lat, w.lon], { icon: windIcon(w), zIndexOffset: 50, keyboard: false })
+      .bindPopup(windPopup(w, data.wind || {}))
+      .addTo(windLayer);
+  });
+
   boatLayer.addTo(map);
   sdrLayer.addTo(map);
+  if (winds.length) windLayer.addTo(map);
+
+  const nomsBox = document.getElementById("ggr-toggle-noms");
+  if (nomsBox) {
+    const applyNoms = () => el.classList.toggle("ggr-hide-names", !nomsBox.checked);
+    nomsBox.addEventListener("change", applyNoms);
+    applyNoms();
+  }
+
   L.control
     .layers(
       { Satellite: satellite, OpenStreetMap: osm },
-      { "Bateaux GGR": boatLayer, KiwiSDR: sdrLayer },
+      {
+        "Bateaux GGR": boatLayer,
+        KiwiSDR: sdrLayer,
+        "Vent GFS 10 m": windLayer,
+      },
       { collapsed: false }
     )
     .addTo(map);
@@ -147,6 +170,42 @@
       iconSize: [18, 18],
       iconAnchor: [9, 9],
     });
+  }
+
+  function windColor(kn) {
+    if (kn < 8) return "#8ecae6";
+    if (kn < 16) return "#7ec8a3";
+    if (kn < 25) return "#e8c547";
+    return "#d45c3a";
+  }
+
+  function windIcon(w) {
+    const to = ((Number(w.dir_from) || 0) + 180) % 360;
+    const kn = Number(w.speed_kn) || 0;
+    const col = windColor(kn);
+    const html =
+      `<div class="ggr-wind-mark" style="transform:rotate(${to}deg)">` +
+      `<svg viewBox="0 0 16 28" width="14" height="24" aria-hidden="true">` +
+      `<path d="M8 3 L8 22" stroke="${col}" stroke-width="2" stroke-linecap="round"/>` +
+      `<path d="M8 2 L3.5 11 L8 8 L12.5 11 Z" fill="${col}"/>` +
+      `</svg></div>`;
+    return L.divIcon({
+      className: "ggr-wind-icon",
+      html,
+      iconSize: [14, 24],
+      iconAnchor: [7, 12],
+    });
+  }
+
+  function windPopup(w, meta) {
+    const gust = w.gust_kn != null ? ` · rafales ${esc(w.gust_kn)} kn` : "";
+    const src = [meta.model || "GFS", meta.height_m != null ? `${meta.height_m} m` : "10 m"]
+      .filter(Boolean)
+      .join(" ");
+    return (
+      `<strong>${esc(w.speed_kn)} kn</strong> depuis ${esc(w.dir_from)}°` +
+      `${gust}<br><span class="meta">${esc(src)} · Open-Meteo</span>`
+    );
   }
 
   function boatPopup(b, title) {

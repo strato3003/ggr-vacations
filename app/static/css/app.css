@@ -75,13 +75,18 @@ h2 { font-size: 1.15rem; margin-top: 2rem; }
 .ggr-map-fig { margin: 0 0 1.75rem; }
 .ggr-map { height: 36rem; width: 100%; background: #071019; border: 1px solid var(--line); }
 .ggr-map-cap { margin: 0.45rem 0 0; color: var(--muted); font-size: 0.85rem; }
-.ggr-map-legend { display: flex; gap: 1.25rem; list-style: none; padding: 0.55rem 0 0; margin: 0; color: var(--muted); font-size: 0.82rem; }
+.ggr-map-legend { display: flex; gap: 1.25rem; list-style: none; padding: 0.55rem 0 0; margin: 0; color: var(--muted); font-size: 0.82rem; align-items: center; }
+.ggr-map-toggle { cursor: pointer; color: var(--foam); }
+.ggr-map-toggle input { margin-right: 0.35rem; vertical-align: middle; }
 .ggr-map-legend .dot { display: inline-block; width: 0.7rem; height: 0.7rem; margin-right: 0.35rem; vertical-align: -0.05rem; }
 .dot--boat { width: 0; height: 0; border-left: 0.38rem solid transparent; border-right: 0.38rem solid transparent; border-bottom: 0.75rem solid #e8c547; background: none; }
 .dot--cent { border-radius: 50%; background: #081018; box-shadow: 0 0 0 2px #c9a227; }
 .dot--sdr { border-radius: 2px; background: #3dba7a; }
-.ggr-boat-icon, .ggr-sdr-icon { background: none; border: none; }
-.ggr-boat-mark, .ggr-sdr-mark { line-height: 0; }
+.dot--wind { width: 0; height: 0; border-left: 0.32rem solid transparent; border-right: 0.32rem solid transparent; border-bottom: 0.7rem solid #8ecae6; background: none; }
+.ggr-boat-icon, .ggr-sdr-icon, .ggr-wind-icon { background: none; border: none; }
+.ggr-boat-mark, .ggr-sdr-mark, .ggr-wind-mark { line-height: 0; }
+.ggr-hide-names .ggr-yb-label,
+.ggr-hide-names .ggr-sdr-label { display: none !important; }
 .leaflet-container { font-family: var(--sans); background: #071019; }
 .leaflet-popup-content-wrapper, .leaflet-popup-tip { background: var(--panel); color: var(--foam); }
 .leaflet-popup-content { margin: 0.7rem 0.85rem; }

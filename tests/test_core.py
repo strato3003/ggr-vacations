@@ -10,6 +10,7 @@ from recorder.geo import centroid, fmt_latlon, haversine_km, initial_bearing
 from recorder.kiwi_audio import ImaAdpcmDecoder, wav_from_snd_frames, _pcm_from_snd, _ws_uris
 from recorder.kiwi_list import parse_kiwi_directory, score_kiwi
 from recorder.session import next_vacation_utc, vacation_id
+from recorder.wind import parse_open_meteo, wind_grid_coords
 
 
 def test_haversine_les_sables_to_self():
@@ -31,7 +32,14 @@ def test_centroid_and_fmt():
     c = centroid([(46.5, -1.8), (46.6, -1.7)])
     assert c is not None
     assert 46.5 < c[0] < 46.6
-    assert "-1" in fmt_latlon(*c)
+    assert -1.8 < c[1] < -1.7
+    label = fmt_latlon(*c)
+    assert label == "46.550°N 1.750°W"
+
+
+def test_fmt_latlon_uses_hemispheres():
+    assert fmt_latlon(46.55, -1.75) == "46.550°N 1.750°W"
+    assert fmt_latlon(-33.9, 18.4).endswith("E")
 
 
 def test_vacation_id_utc():
@@ -122,3 +130,24 @@ def test_wav_from_snd_frames(tmp_path):
     dest = tmp_path / "t.wav"
     assert wav_from_snd_frames([b"SND" + body], dest)
     assert dest.stat().st_size > 44
+
+
+def test_wind_grid_and_open_meteo_parse():
+    lats, lons = wind_grid_coords(46.5, -4.0, n_lat=2, n_lon=2)
+    assert len(lats) == 4
+    parsed = parse_open_meteo(
+        {
+            "latitude": 46.5,
+            "longitude": -4.0,
+            "current": {
+                "time": 1_700_000_000,
+                "wind_speed_10m": 18.3,
+                "wind_direction_10m": 318,
+                "wind_gusts_10m": 19.6,
+            },
+        }
+    )
+    assert parsed["model"] == "GFS"
+    assert parsed["unit"] == "kn"
+    assert parsed["points"][0]["speed_kn"] == 18.3
+    assert parsed["points"][0]["dir_from"] == 318

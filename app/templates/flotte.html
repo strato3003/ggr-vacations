@@ -22,19 +22,28 @@
 <figure class="ggr-map-fig">
   <div id="ggr-map" class="ggr-map" role="region" aria-label="Carte des bateaux GGR et des KiwiSDR"></div>
   <figcaption class="ggr-map-cap">
-    Vue type <strong>Yellowbrick</strong> : bateaux colorés (cap + nom) et KiwiSDR retenus.
+    Vue type <strong>Yellowbrick</strong> : bateaux (cap), KiwiSDR, vent GFS 10&nbsp;m
+    (Open-Meteo, nœuds). Noms et vent basculables sur la carte.
     <a href="https://yb.tl/{{ fleet.race_id or 'ggr2026' }}" rel="noreferrer">Tracker officiel</a>
   </figcaption>
-  <ul class="ggr-map-legend" aria-hidden="true">
+  <ul class="ggr-map-legend">
     <li><span class="dot dot--boat"></span> Bateau (cap)</li>
     <li><span class="dot dot--cent"></span> Centroïde</li>
     <li><span class="dot dot--sdr"></span> KiwiSDR</li>
+    <li><span class="dot dot--wind"></span> Vent (vers où il souffle)</li>
+    <li>
+      <label class="ggr-map-toggle">
+        <input type="checkbox" id="ggr-toggle-noms" checked>
+        Afficher les noms
+      </label>
+    </li>
   </ul>
 </figure>
 <script type="application/json" id="ggr-map-data">{{ {
   "centroid": {"lat": fleet.lat, "lon": fleet.lon, "label": fleet.label, "fmt": fleet.fmt},
   "boats": fleet.boats or [],
-  "kiwis": kiwis or []
+  "kiwis": kiwis or [],
+  "wind": wind or {}
 } | tojson }}</script>
 
 {% if fleet.boats %}
