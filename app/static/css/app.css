@@ -72,6 +72,19 @@ h2 { font-size: 1.15rem; margin-top: 2rem; }
 .chan audio { width: 100%; margin-top: 0.6rem; }
 .err { color: var(--err); }
 .fleet-box { background: var(--panel); padding: 1rem 1.2rem; border-left: 3px solid var(--brass); margin: 1rem 0 1.5rem; }
+.ggr-map-fig { margin: 0 0 1.75rem; }
+.ggr-map { height: 28rem; width: 100%; background: #071019; border: 1px solid var(--line); }
+.ggr-map-cap { margin: 0.45rem 0 0; color: var(--muted); font-size: 0.85rem; }
+.ggr-map-legend { display: flex; gap: 1.25rem; list-style: none; padding: 0.55rem 0 0; margin: 0; color: var(--muted); font-size: 0.82rem; }
+.ggr-map-legend .dot { display: inline-block; width: 0.7rem; height: 0.7rem; border-radius: 50%; margin-right: 0.35rem; vertical-align: -0.05rem; }
+.dot--boat { background: #e8c547; }
+.dot--cent { background: #081018; box-shadow: 0 0 0 2px #c9a227; }
+.dot--sdr { background: #3dba7a; }
+.leaflet-container { font-family: var(--sans); background: #071019; }
+.leaflet-popup-content-wrapper, .leaflet-popup-tip { background: var(--panel); color: var(--foam); }
+.leaflet-popup-content { margin: 0.7rem 0.85rem; }
+.leaflet-control-layers { background: var(--panel); color: var(--foam); border: 1px solid var(--line); }
+.leaflet-control-attribution { background: rgba(8, 16, 24, 0.75); color: var(--muted); }
 .tbl { width: 100%; border-collapse: collapse; font-size: 0.92rem; }
 .tbl th, .tbl td { text-align: left; padding: 0.55rem 0.4rem; border-bottom: 1px solid var(--line); vertical-align: top; }
 .tbl th { color: var(--muted); font-weight: 500; }
@@ -82,4 +95,6 @@ h2 { font-size: 1.15rem; margin-top: 2rem; }
 @media (max-width: 900px) {
   .qrg-bar { grid-template-columns: 1fr 1fr; }
   .mast { flex-direction: column; align-items: flex-start; }
+  .ggr-map { height: 20rem; }
+  .ggr-map-legend { flex-wrap: wrap; gap: 0.6rem 1rem; }
 }

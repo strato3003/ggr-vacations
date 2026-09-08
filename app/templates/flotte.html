@@ -1,5 +1,9 @@
 {% extends "base.html" %}
 {% block title %} · Flotte &amp; SDR{% endblock %}
+{% block extra_head %}
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+      integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+{% endblock %}
 {% block content %}
 <section class="intro">
   <h1>Position moyenne de la flotte</h1>
@@ -14,6 +18,24 @@
   <p class="meta">{{ fleet.label }} · source {{ fleet.source }} · {{ fleet.n_boats }} bateaux</p>
   {% if fleet.warning %}<p class="err">{{ fleet.warning }}</p>{% endif %}
 </div>
+
+<figure class="ggr-map-fig">
+  <div id="ggr-map" class="ggr-map" role="region" aria-label="Carte des bateaux GGR et des KiwiSDR"></div>
+  <figcaption class="ggr-map-cap">
+    Positions <strong>Yellowbrick</strong> (flotte GGR 2026) et KiwiSDR retenus.
+    <a href="https://yb.tl/{{ fleet.race_id or 'ggr2026' }}" rel="noreferrer">Tracker officiel</a>
+  </figcaption>
+  <ul class="ggr-map-legend" aria-hidden="true">
+    <li><span class="dot dot--boat"></span> Bateaux</li>
+    <li><span class="dot dot--cent"></span> Centroïde</li>
+    <li><span class="dot dot--sdr"></span> KiwiSDR</li>
+  </ul>
+</figure>
+<script type="application/json" id="ggr-map-data">{{ {
+  "centroid": {"lat": fleet.lat, "lon": fleet.lon, "label": fleet.label, "fmt": fleet.fmt},
+  "boats": fleet.boats or [],
+  "kiwis": kiwis or []
+} | tojson }}</script>
 
 {% if fleet.boats %}
 <table class="tbl">
@@ -49,4 +71,9 @@
     {% endfor %}
   </tbody>
 </table>
+{% endblock %}
+{% block extra_js %}
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+        integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+<script src="/static/js/flotte-map.js"></script>
 {% endblock %}

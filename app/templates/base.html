@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{{ app_name }} {{ version }}{% block title %}{% endblock %}</title>
   <link rel="stylesheet" href="/static/css/app.css">
+  {% block extra_head %}{% endblock %}
 </head>
 <body>
   <header class="mast">
@@ -48,5 +49,6 @@
     <p>{{ app_name }} {{ version }} — enregistrements KiwiSDR selon la position moyenne de la flotte GGR.</p>
   </footer>
   <script src="/static/js/app.js"></script>
+  {% block extra_js %}{% endblock %}
 </body>
 </html>

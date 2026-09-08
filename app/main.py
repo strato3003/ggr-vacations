@@ -123,7 +123,11 @@ async def vacation_page(request: Request, vacation_id: str):
 async def flotte_page(request: Request):
     try:
         fleet = await fetch_fleet(CFG)
-        kiwis = await fetch_ranked_kiwis(CFG, fleet["lat"], fleet["lon"], limit=8)
+        try:
+            kiwis = await fetch_ranked_kiwis(CFG, fleet["lat"], fleet["lon"], limit=8)
+        except Exception:
+            log.exception("Liste KiwiSDR indisponible")
+            kiwis = []
     except Exception as exc:
         log.exception("Page flotte")
         return HTMLResponse(
