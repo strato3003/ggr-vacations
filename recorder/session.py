@@ -21,6 +21,8 @@ from recorder.screencast import record_screencast
 
 log = logging.getLogger(__name__)
 LOCK_NAME = ".recording.lock"
+RECORDING_GRACE_S = 180
+ORPHAN_ERROR = "Enregistrement interrompu (processus arrêté avant la fin)"
 
 
 def vacation_id(when: datetime | None = None) -> str:
@@ -173,30 +175,25 @@ async def run_vacation(cfg: dict[str, Any] | None = None, *, reason: str = "sche
                 )
             meta["channels"].append(ch_out)
 
-        results = await asyncio.gather(*jobs, return_exceptions=True)
+        _write_meta(session_dir, meta)
+        try:
+            results = await asyncio.wait_for(
+                asyncio.gather(*jobs, return_exceptions=True),
+                timeout=duration + RECORDING_GRACE_S,
+            )
+        except TimeoutError:
+            log.error(
+                "Vacation %s : timeout après %ss",
+                vid,
+                duration + RECORDING_GRACE_S,
+            )
+            raise RuntimeError(
+                f"Timeout après {int((duration + RECORDING_GRACE_S) / 60)} min "
+                "(screencast ou audio bloqué)"
+            ) from None
         meta["raw_results"] = [
             (repr(r) if isinstance(r, Exception) else r) for r in results
         ]
-
-        for ch in meta["channels"]:
-            wav = session_dir / (ch.get("audio_file") or f"audio-{ch['id']}.wav")
-            if wav.is_file() and wav.stat().st_size > 64:
-                ch["audio"] = wav.name
-            else:
-                ch.pop("audio", None)
-            ch.pop("audio_file", None)
-            raw = session_dir / ch.get("screencast_raw", "")
-            if ch.get("screencast_raw") and raw.exists():
-                mp4 = session_dir / f"screencast-{ch['id']}.mp4"
-                if mux_screencast(raw, wav, mp4):
-                    ch["video"] = mp4.name
-                    thumb = session_dir / f"thumb-{ch['id']}.jpg"
-                    if thumbnail(mp4, thumb):
-                        ch["thumb"] = thumb.name
-                    try:
-                        raw.unlink()
-                    except OSError:
-                        pass
 
         meta["status"] = "complete"
         meta["ended_at"] = datetime.now(timezone.utc).isoformat()
@@ -210,6 +207,7 @@ async def run_vacation(cfg: dict[str, Any] | None = None, *, reason: str = "sche
         log.exception("Vacation %s en échec", vid)
         return meta
     finally:
+        _finalize_media(session_dir, meta)
         _write_meta(session_dir, meta)
         try:
             lock.unlink()
@@ -319,16 +317,6 @@ async def run_test_20m(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
         meta["raw_results"] = [
             (repr(r) if isinstance(r, Exception) else r) for r in results
         ]
-        if wav.is_file() and wav.stat().st_size > 64:
-            ch_out["audio"] = wav.name
-        if webm.exists():
-            mp4 = session_dir / "screencast-tx.mp4"
-            if mux_screencast(webm, wav, mp4):
-                ch_out["video"] = mp4.name
-                thumb = session_dir / "thumb-tx.jpg"
-                if thumbnail(mp4, thumb, at_s=30):
-                    ch_out["thumb"] = thumb.name
-                webm.unlink(missing_ok=True)
         meta["status"] = "complete"
         meta["ended_at"] = datetime.now(timezone.utc).isoformat()
         meta["fleet_fmt"] = fleet.get("fmt") or fmt_latlon(fleet["lat"], fleet["lon"])
@@ -341,11 +329,96 @@ async def run_test_20m(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
         log.exception("Test 20 m %s en échec", vid)
         return meta
     finally:
+        _finalize_media(session_dir, meta)
         _write_meta(session_dir, meta)
         try:
             lock.unlink()
         except OSError:
             pass
+
+
+def recover_orphaned(cfg: dict[str, Any] | None = None) -> int:
+    """Au démarrage : le process précédent est mort, lock et « running » sont orphelins."""
+    cfg = cfg or load_config()
+    root = data_dir(cfg)
+    n = 0
+    lock = root / LOCK_NAME
+    if lock.exists():
+        try:
+            lock.unlink()
+            n += 1
+            log.warning("Verrou d'enregistrement orphelin retiré")
+        except OSError:
+            pass
+    vac_root = root / "vacations"
+    if not vac_root.exists():
+        return n
+    for folder in vac_root.iterdir():
+        if not folder.is_dir():
+            continue
+        meta_path = folder / "metadata.json"
+        if not meta_path.is_file():
+            continue
+        try:
+            meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if meta.get("status") != "running":
+            continue
+        meta["status"] = "error"
+        meta["error"] = ORPHAN_ERROR
+        meta["ended_at"] = datetime.now(timezone.utc).isoformat()
+        _finalize_media(folder, meta)
+        _write_meta(folder, meta)
+        n += 1
+        log.warning("Vacation %s marquée interrompue", folder.name)
+    return n
+
+
+def _mux_channel(session_dir: Path, ch: dict[str, Any], raw: Path) -> None:
+    wav = session_dir / (ch.get("audio_file") or ch.get("audio") or f"audio-{ch.get('id') or 'tx'}.wav")
+    cid = ch.get("id") or "tx"
+    mp4 = session_dir / f"screencast-{cid}.mp4"
+    if mux_screencast(raw, wav, mp4):
+        ch["video"] = mp4.name
+        thumb = session_dir / f"thumb-{cid}.jpg"
+        at_s = 30 if cid == "tx" else 45
+        if thumbnail(mp4, thumb, at_s=at_s):
+            ch["thumb"] = thumb.name
+        raw.unlink(missing_ok=True)
+
+
+def _finalize_media(session_dir: Path, meta: dict[str, Any]) -> None:
+    """Mux WAV/WebM restants, y compris un .webm Playwright au nom hashé."""
+    channels = meta.setdefault("channels", [])
+    for ch in channels:
+        wav = session_dir / (ch.get("audio_file") or ch.get("audio") or f"audio-{ch['id']}.wav")
+        if wav.is_file() and wav.stat().st_size > 64:
+            ch["audio"] = wav.name
+        else:
+            ch.pop("audio", None)
+        ch.pop("audio_file", None)
+        raw_name = ch.get("screencast_raw")
+        raw = session_dir / raw_name if raw_name else session_dir / f"screencast-{ch['id']}.webm"
+        if raw.is_file() and raw.stat().st_size > 64:
+            _mux_channel(session_dir, ch, raw)
+        ch.pop("screencast_raw", None)
+
+    leftovers = [p for p in session_dir.glob("*.webm") if p.is_file() and p.stat().st_size > 64]
+    if not leftovers:
+        return
+    tx = next((c for c in channels if c.get("id") == "tx"), None)
+    if tx is None:
+        tx = {
+            "id": "tx",
+            "kind": "tx",
+            "freq_khz": 14135.0,
+            "label": "Bulletin météo F6KUF",
+            "screencast": True,
+        }
+        channels.insert(0, tx)
+    if not tx.get("video"):
+        _mux_channel(session_dir, tx, max(leftovers, key=lambda p: p.stat().st_size))
 
 
 def _write_meta(session_dir: Path, meta: dict[str, Any]) -> None:

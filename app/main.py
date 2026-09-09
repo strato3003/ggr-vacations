@@ -19,7 +19,7 @@ from recorder.config import load_config, version
 from recorder.fleet import fetch_fleet
 from recorder.kiwi_list import fetch_ranked_kiwis
 from recorder.scheduler import build_scheduler
-from recorder.session import next_vacation_utc, run_vacation
+from recorder.session import next_vacation_utc, recover_orphaned, run_vacation
 
 log = logging.getLogger(__name__)
 ROOT = Path(__file__).resolve().parent
@@ -30,6 +30,9 @@ CFG = load_config()
 async def lifespan(_app: FastAPI):
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     log.info("Templates : %s → %s", ROOT / "templates", list((ROOT / "templates").glob("*.html")))
+    recovered = recover_orphaned(CFG)
+    if recovered:
+        log.warning("Récupération : %s verrou(s) / vacation(s) orphelin(s)", recovered)
     scheduler = build_scheduler(CFG)
     scheduler.start()
     try:

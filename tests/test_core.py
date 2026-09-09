@@ -129,3 +129,47 @@ def test_wav_from_snd_frames(tmp_path):
     dest = tmp_path / "t.wav"
     assert wav_from_snd_frames([b"SND" + body], dest)
     assert dest.stat().st_size > 44
+
+
+def test_recover_orphaned_clears_lock_and_running(tmp_path):
+    import json
+
+    from recorder.session import recover_orphaned
+
+    cfg = {"storage": {"data_dir": str(tmp_path)}}
+    lock = tmp_path / ".recording.lock"
+    lock.write_text("2026-09-08T17:50:00+00:00", encoding="utf-8")
+    folder = tmp_path / "vacations" / "2026-09-08T1750Z"
+    folder.mkdir(parents=True)
+    (folder / "metadata.json").write_text(
+        json.dumps({"id": "2026-09-08T1750Z", "status": "running", "channels": []}),
+        encoding="utf-8",
+    )
+    n = recover_orphaned(cfg)
+    assert n >= 2
+    assert not lock.exists()
+    saved = json.loads((folder / "metadata.json").read_text(encoding="utf-8"))
+    assert saved["status"] == "error"
+    assert "interrompu" in saved["error"]
+
+
+def test_hold_page_stops_if_chromium_frozen(monkeypatch):
+    import asyncio
+    import time
+
+    from recorder.screencast import _hold_page
+
+    monkeypatch.setattr("recorder.screencast._PAGE_PING_S", 0.05)
+    monkeypatch.setattr("recorder.screencast._PAGE_PING_TIMEOUT_S", 0.05)
+
+    class Frozen:
+        async def evaluate(self, _expr):
+            raise RuntimeError("Target closed")
+
+    async def go():
+        t0 = time.monotonic()
+        await _hold_page(Frozen(), 30)
+        return time.monotonic() - t0
+
+    elapsed = asyncio.run(go())
+    assert elapsed < 2.0

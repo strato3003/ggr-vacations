@@ -2,15 +2,23 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import json
 import logging
+import time
 from pathlib import Path
 from typing import Any
 
 from recorder.kiwi_list import kiwi_tune_url
 
 log = logging.getLogger(__name__)
+
+# Heartbeat : si Chromium / la page Kiwi ne répond plus, on arrête plutôt
+# que d’attendre duration_s via wait_for_timeout (CDP, peut pendre indéfiniment).
+_PAGE_PING_S = 15.0
+_PAGE_PING_TIMEOUT_S = 8.0
+_CLOSE_TIMEOUT_S = 45.0
 
 SND_HOOK_JS = """
 (() => {
@@ -69,6 +77,52 @@ def _overlay_html(meta: dict[str, Any]) -> str:
     )
 
 
+async def _hold_page(page: Any, duration_s: float) -> None:
+    """Attend en asyncio (pas CDP wait_for_timeout) et lâche si la page est figée."""
+    deadline = time.monotonic() + max(0.0, duration_s)
+    while True:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return
+        await asyncio.sleep(min(_PAGE_PING_S, remaining))
+        if deadline - time.monotonic() <= 0:
+            return
+        try:
+            await asyncio.wait_for(page.evaluate("Date.now()"), timeout=_PAGE_PING_TIMEOUT_S)
+        except Exception:
+            log.warning("Screencast : page KiwiSDR / Chromium figée, arrêt anticipé")
+            return
+
+
+async def _close_playwright(context: Any, browser: Any, page: Any, dest_webm: Path, info: dict[str, Any]) -> None:
+    video = page.video if page is not None else None
+    try:
+        await asyncio.wait_for(context.close(), timeout=_CLOSE_TIMEOUT_S)
+    except Exception as exc:
+        log.warning("Fermeture contexte Playwright : %s", exc)
+        try:
+            await asyncio.wait_for(browser.close(), timeout=15)
+        except Exception:
+            pass
+        return
+    try:
+        await asyncio.wait_for(browser.close(), timeout=15)
+    except Exception as exc:
+        log.warning("Fermeture navigateur Playwright : %s", exc)
+    if not video:
+        return
+    try:
+        raw = Path(await asyncio.wait_for(video.path(), timeout=60))
+    except Exception as exc:
+        log.warning("Fichier vidéo Playwright : %s", exc)
+        return
+    if raw.exists():
+        dest_webm.unlink(missing_ok=True)
+        raw.replace(dest_webm)
+        info["path"] = str(dest_webm)
+        info["ok"] = True
+
+
 async def record_screencast(
     kiwi: dict[str, Any],
     freq_khz: float,
@@ -101,7 +155,8 @@ async def record_screencast(
         except Exception:
             return
 
-    async with async_playwright() as pw:
+    pw = await async_playwright().start()
+    try:
         browser = await pw.chromium.launch(
             headless=True,
             args=[
@@ -122,7 +177,7 @@ async def record_screencast(
         page = await context.new_page()
         try:
             await page.goto(url, wait_until="domcontentloaded", timeout=90_000)
-            await page.wait_for_timeout(5_000)
+            await asyncio.sleep(5)
             if overlay:
                 html = json.dumps(_overlay_html(overlay))
                 await page.evaluate(f"window.__GGR_OVERLAY_HTML = {html};")
@@ -140,24 +195,20 @@ async def record_screencast(
                             html = json.dumps(_overlay_html(overlay))
                             await page.evaluate(f"window.__GGR_OVERLAY_HTML = {html};")
                             await page.evaluate(OVERLAY_JS)
-                    await page.wait_for_timeout(int(dwell * 1000))
+                    await _hold_page(page, dwell)
             else:
-                await page.wait_for_timeout(int(duration_s * 1000))
+                await _hold_page(page, duration_s)
             info["ok"] = True
         except Exception as exc:
             info["error"] = str(exc)
             log.warning("Screencast Kiwi %s : %s", kiwi.get("name"), exc)
         finally:
-            video = page.video
-            await context.close()
-            await browser.close()
-            if video:
-                raw = Path(await video.path())
-                if raw.exists():
-                    dest_webm.unlink(missing_ok=True)
-                    raw.replace(dest_webm)
-                    info["path"] = str(dest_webm)
-                    info["ok"] = True
+            await _close_playwright(context, browser, page, dest_webm, info)
+    finally:
+        try:
+            await asyncio.wait_for(pw.stop(), timeout=15)
+        except Exception as exc:
+            log.warning("Arrêt Playwright : %s", exc)
     if snd_wav is not None:
         from recorder.kiwi_audio import wav_from_snd_frames
         wrote = wav_from_snd_frames(snd_frames, snd_wav)
