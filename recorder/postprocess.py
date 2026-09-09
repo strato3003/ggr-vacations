@@ -46,8 +46,11 @@ def mux_screencast(video_webm: Path, audio_wav: Path, dest_mp4: Path) -> Path | 
         str(dest_mp4),
     ]
     try:
-        subprocess.run(cmd, check=True, capture_output=True, text=True)
+        subprocess.run(cmd, check=True, capture_output=True, text=True, timeout=1200)
         return dest_mp4
+    except subprocess.TimeoutExpired:
+        log.warning("ffmpeg mux : timeout 20 min")
+        return None
     except subprocess.CalledProcessError as exc:
         log.warning("ffmpeg mux : %s", exc.stderr[-400:] if exc.stderr else exc)
         return None

@@ -19,7 +19,7 @@ from recorder.config import load_config, version
 from recorder.fleet import fetch_fleet
 from recorder.kiwi_list import fetch_ranked_kiwis
 from recorder.scheduler import build_scheduler
-from recorder.session import next_vacation_utc, recover_orphaned, run_vacation
+from recorder.session import finalize_pending_sessions, next_vacation_utc, recover_orphaned, run_vacation
 
 log = logging.getLogger(__name__)
 ROOT = Path(__file__).resolve().parent
@@ -35,9 +35,20 @@ async def lifespan(_app: FastAPI):
         log.warning("Récupération : %s verrou(s) / vacation(s) orphelin(s)", recovered)
     scheduler = build_scheduler(CFG)
     scheduler.start()
+
+    async def _mux_pending() -> None:
+        try:
+            n = await asyncio.to_thread(finalize_pending_sessions, CFG)
+            if n:
+                log.info("Finalisation média : %s session(s)", n)
+        except Exception:
+            log.exception("Finalisation média")
+
+    mux_task = asyncio.create_task(_mux_pending())
     try:
         yield
     finally:
+        mux_task.cancel()
         scheduler.shutdown(wait=False)
 
 

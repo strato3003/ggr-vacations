@@ -338,7 +338,7 @@ async def run_test_20m(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
 
 
 def recover_orphaned(cfg: dict[str, Any] | None = None) -> int:
-    """Au démarrage : le process précédent est mort, lock et « running » sont orphelins."""
+    """Au démarrage : lock et « running » orphelins — sans mux ffmpeg (trop long pour /health)."""
     cfg = cfg or load_config()
     root = data_dir(cfg)
     n = 0
@@ -368,10 +368,40 @@ def recover_orphaned(cfg: dict[str, Any] | None = None) -> int:
         meta["status"] = "error"
         meta["error"] = ORPHAN_ERROR
         meta["ended_at"] = datetime.now(timezone.utc).isoformat()
-        _finalize_media(folder, meta)
         _write_meta(folder, meta)
         n += 1
         log.warning("Vacation %s marquée interrompue", folder.name)
+    return n
+
+
+def finalize_pending_sessions(cfg: dict[str, Any] | None = None) -> int:
+    """Mux WAV/WebM restants une fois l’UI déjà joignable."""
+    cfg = cfg or load_config()
+    vac_root = data_dir(cfg) / "vacations"
+    if not vac_root.exists():
+        return 0
+    n = 0
+    for folder in vac_root.iterdir():
+        if not folder.is_dir():
+            continue
+        meta_path = folder / "metadata.json"
+        if not meta_path.is_file():
+            continue
+        try:
+            meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        before = json.dumps(meta, sort_keys=True)
+        _finalize_media(folder, meta)
+        has_media = any(ch.get("video") or ch.get("audio") for ch in (meta.get("channels") or []))
+        if meta.get("error") == ORPHAN_ERROR and has_media:
+            meta["status"] = "complete"
+            meta.pop("error", None)
+            meta["ended_at"] = datetime.now(timezone.utc).isoformat()
+            log.info("Vacation %s finalisée après interruption", folder.name)
+        if json.dumps(meta, sort_keys=True) != before:
+            _write_meta(folder, meta)
+            n += 1
     return n
 
 

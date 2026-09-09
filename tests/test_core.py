@@ -153,6 +153,34 @@ def test_recover_orphaned_clears_lock_and_running(tmp_path):
     assert "interrompu" in saved["error"]
 
 
+def test_finalize_pending_promotes_orphan_with_audio(tmp_path):
+    import json
+
+    from recorder.session import finalize_pending_sessions
+
+    cfg = {"storage": {"data_dir": str(tmp_path)}}
+    folder = tmp_path / "vacations" / "2026-09-09T1750Z"
+    folder.mkdir(parents=True)
+    wav = folder / "audio-tx.wav"
+    wav.write_bytes(b"RIFF" + b"\x00" * 80)
+    (folder / "metadata.json").write_text(
+        json.dumps(
+            {
+                "id": "2026-09-09T1750Z",
+                "status": "error",
+                "error": "Enregistrement interrompu (processus arrêté avant la fin)",
+                "channels": [{"id": "tx", "audio_file": "audio-tx.wav"}],
+            }
+        ),
+        encoding="utf-8",
+    )
+    assert finalize_pending_sessions(cfg) >= 1
+    saved = json.loads((folder / "metadata.json").read_text(encoding="utf-8"))
+    assert saved["status"] == "complete"
+    assert saved["channels"][0]["audio"] == "audio-tx.wav"
+    assert "error" not in saved
+
+
 def test_hold_page_stops_if_chromium_frozen(monkeypatch):
     import asyncio
     import time
