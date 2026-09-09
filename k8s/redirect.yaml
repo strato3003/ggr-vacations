@@ -1,18 +1,25 @@
+apiVersion: traefik.containo.us/v1alpha1
+kind: Middleware
+metadata:
+  name: redirect-https
+  labels:
+    app.kubernetes.io/name: ggr-vacations
+spec:
+  redirectScheme:
+    scheme: https
+    permanent: true
+---
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: ggr-vacations
+  name: ggr-vacations-http
   labels:
     app.kubernetes.io/name: ggr-vacations
   annotations:
-    cert-manager.io/cluster-issuer: letsencrypt-production
-    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.entrypoints: web
+    traefik.ingress.kubernetes.io/router.middlewares: ggr-vacations-redirect-https@kubernetescrd
 spec:
   ingressClassName: traefik
-  tls:
-    - hosts:
-        - ggr-vacations.k3s.lpb.ovh
-      secretName: ggr-vacations-tls
   rules:
     - host: ggr-vacations.k3s.lpb.ovh
       http:

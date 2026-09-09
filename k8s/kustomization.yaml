@@ -6,6 +6,7 @@ resources:
   - deployment.yaml
   - service.yaml
   - ingress.yaml
+  - redirect.yaml
 configMapGenerator:
   - name: ggr-vacations-config
     files:
