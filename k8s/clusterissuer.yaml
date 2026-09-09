@@ -1,0 +1,15 @@
+# Cluster-wide — Let's Encrypt HTTP-01 via Traefik (comme les autres Ingress k3s.lpb.ovh).
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-production
+spec:
+  acme:
+    email: jnmartineau@gmail.com
+    server: https://acme-v02.api.letsencrypt.org/directory
+    privateKeySecretRef:
+      name: letsencrypt-production
+    solvers:
+      - http01:
+          ingress:
+            ingressClassName: traefik

@@ -73,6 +73,6 @@ web:
   # Jeton pour déclencher un enregistrement manuel (POST /api/vacations/record)
   admin_token: ""
 
-# Hôte Ingress k3s (à adapter)
+# Hôte Ingress Traefik + Let's Encrypt
 ingress:
-  host: ggr-vacations.local
+  host: ggr-vacations.k3s.lpb.ovh

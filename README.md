@@ -30,7 +30,8 @@ cd /opt/ggr-vacations
 sudo ./scripts/update.sh           # tire GHCR si origin GitHub, sinon rebuild
 ```
 
-L’UI est exposée en **NodePort 30080** : `http://<IP-du-VPS>:30080`.
+L’UI est en **HTTPS** via Traefik + Let’s Encrypt : [https://ggr-vacations.k3s.lpb.ovh](https://ggr-vacations.k3s.lpb.ovh).  
+Le NodePort `http://<IP-du-VPS>:30080` reste disponible en secours.
 
 Test scan 20 m (environ 2,5 min, USB 14,19–14,275 MHz) après déploiement de cette version :
 
@@ -44,12 +45,12 @@ La carte **Test scan 20 m** apparaît ensuite sur l’accueil.
 sudo k3s kubectl -n ggr-vacations get pods,svc,pvc
 ```
 
-Pour un nom DNS, modifier `k8s/ingress.yaml` (`ggr-vacations.local`) puis relancer `./scripts/update.sh`. Traefik (fourni par k3s) prend l’Ingress en charge.
+Le nom DNS est `ggr-vacations.k3s.lpb.ovh` (`k8s/ingress.yaml`). Traefik (k3s) termine le TLS ; cert-manager renouvelle le certificat.
 
 Enregistrement manuel (jeton `web.admin_token` ou variable `GGR_ADMIN_TOKEN`) :
 
 ```bash
-curl -X POST -H "X-Admin-Token: …" http://<IP>:30080/api/vacations/record
+curl -X POST -H "X-Admin-Token: …" https://ggr-vacations.k3s.lpb.ovh/api/vacations/record
 ```
 
 ## Configuration radio

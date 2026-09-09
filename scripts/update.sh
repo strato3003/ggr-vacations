@@ -82,7 +82,32 @@ case "$MODE" in
     ;;
 esac
 
+ensure_cert_manager() {
+  if kc get crd certificates.cert-manager.io >/dev/null 2>&1; then
+    return 0
+  fi
+  echo "Installation cert-manager v1.13.2 (certificats Let's Encrypt)…"
+  kc apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.13.2/cert-manager.yaml
+  kc -n cert-manager rollout status deploy/cert-manager-webhook --timeout=180s
+  kc -n cert-manager rollout status deploy/cert-manager-cainjector --timeout=180s
+  kc -n cert-manager rollout status deploy/cert-manager --timeout=180s
+}
+
+apply_clusterissuer() {
+  local i
+  for i in 1 2 3 4 5 6; do
+    if kc apply -f "$ROOT/k8s/clusterissuer.yaml"; then
+      return 0
+    fi
+    echo "ClusterIssuer : webhook cert-manager pas prêt, nouvel essai (${i}/6)…"
+    sleep 5
+  done
+  return 1
+}
+
+ensure_cert_manager
 kc apply -f "$ROOT/k8s/namespace.yaml"
+apply_clusterissuer
 kc apply -k "$ROOT/k8s"
 kc -n "$KNS" set image "deploy/ggr-vacations" "web=${IMAGE}"
 
@@ -94,4 +119,4 @@ fi
 kc -n "$KNS" rollout restart "deploy/ggr-vacations"
 kc -n "$KNS" rollout status "deploy/ggr-vacations" --timeout=180s
 echo "Déployé : ${IMAGE}"
-echo "UI : http://<IP-du-VPS>:30080"
+echo "UI : https://ggr-vacations.k3s.lpb.ovh"

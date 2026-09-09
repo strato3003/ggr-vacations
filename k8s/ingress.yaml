@@ -4,10 +4,16 @@ metadata:
   name: ggr-vacations
   labels:
     app.kubernetes.io/name: ggr-vacations
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-production
 spec:
   ingressClassName: traefik
+  tls:
+    - hosts:
+        - ggr-vacations.k3s.lpb.ovh
+      secretName: ggr-vacations-tls
   rules:
-    - host: ggr-vacations.local
+    - host: ggr-vacations.k3s.lpb.ovh
       http:
         paths:
           - path: /
