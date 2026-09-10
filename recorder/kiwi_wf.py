@@ -54,19 +54,20 @@ def usb_dial_from_spectrum(
     if len(bins) < WF_BINS:
         return None
     freqs = [bin_freq_khz(i, zoom, cf_khz, max_freq_khz=max_freq_khz) for i in range(WF_BINS)]
-    mask = [lo_khz <= f <= hi_khz for f in freqs]
+    # Écarter les 2 kHz aux bords de fenêtre (artefacts CIC / blob tronqué).
+    mask = [lo_khz + 2.0 <= f <= hi_khz - 2.0 for f in freqs]
     band = [bins[i] for i, ok in enumerate(mask) if ok]
     if len(band) < 16:
         return None
     ordered = sorted(band)
     noise = ordered[max(0, len(ordered) // 5)]
     peak = ordered[-1]
-    if peak - noise < 12:
+    if peak - noise < 18:
         return None
-    thr = noise + 0.45 * (peak - noise)
+    thr = noise + 0.35 * (peak - noise)
     bin_hz = span_khz(zoom, max_freq_khz) / WF_BINS * 1000.0
-    min_w = max(6, int(1.4e3 / bin_hz))
-    max_w = max(min_w + 1, int(4.2e3 / bin_hz))
+    min_w = max(6, int(1.2e3 / bin_hz))
+    max_w = max(min_w + 1, int(5.0e3 / bin_hz))
 
     best: tuple[float, int, int] | None = None
     i = 0
@@ -79,13 +80,17 @@ def usb_dial_from_spectrum(
             j += 1
         width = j - i
         if min_w <= width <= max_w:
-            score = sum(bins[i:j]) / width
-            if best is None or score > best[0]:
-                best = (score, i, j)
+            prominence = max(bins[i:j]) - noise
+            if best is None or prominence > best[0]:
+                best = (prominence, i, j)
         i = j
     if best is None:
-        # Repli : pic le plus fort, dial ~ 1,4 kHz sous le centre de voix USB.
-        idx = max((i for i, ok in enumerate(mask) if ok), key=lambda i: bins[i])
+        inner = [i for i, ok in enumerate(mask) if ok]
+        if not inner:
+            return None
+        idx = max(inner, key=lambda k: bins[k])
+        if bins[idx] - noise < 18:
+            return None
         dial = freqs[idx] - 1.4
     else:
         dial = freqs[best[1]]
