@@ -234,3 +234,50 @@ def test_channel_audio_delay_sidecar(tmp_path):
     (tmp_path / "audio-tx.delay").write_text("5.5\n", encoding="utf-8")
     assert _channel_audio_delay(tmp_path, {"id": "tx"}) == 5.5
     assert _channel_audio_delay(tmp_path, {"id": "tx", "audio_delay_s": 2}) == 2.0
+
+
+def test_usb_dial_from_left_edge_of_ssb_blob():
+    from recorder.kiwi_wf import (
+        HUNT_CF_KHZ,
+        HUNT_ZOOM,
+        WF_BINS,
+        bin_freq_khz,
+        usb_dial_from_spectrum,
+    )
+
+    bins = [40.0] * WF_BINS
+    i0 = min(
+        range(WF_BINS),
+        key=lambda i: abs(bin_freq_khz(i, HUNT_ZOOM, HUNT_CF_KHZ) - 14200.0),
+    )
+    i1 = min(
+        range(WF_BINS),
+        key=lambda i: abs(bin_freq_khz(i, HUNT_ZOOM, HUNT_CF_KHZ) - 14202.4),
+    )
+    for i in range(min(i0, i1), max(i0, i1) + 1):
+        bins[i] = 180.0
+    hit = usb_dial_from_spectrum(bins, zoom=HUNT_ZOOM, cf_khz=HUNT_CF_KHZ)
+    assert hit is not None
+    assert abs(hit["freq_khz"] - 14200.0) < 0.25
+
+
+def test_usb_dial_none_on_flat_noise():
+    from recorder.kiwi_wf import HUNT_CF_KHZ, HUNT_ZOOM, WF_BINS, usb_dial_from_spectrum
+
+    assert usb_dial_from_spectrum([50.0] * WF_BINS, zoom=HUNT_ZOOM, cf_khz=HUNT_CF_KHZ) is None
+
+
+def test_parse_wf_line_uncompressed():
+    from recorder.kiwi_wf import WF_BINS, _parse_wf_line
+
+    payload = bytes((i * 3) % 256 for i in range(WF_BINS))
+    msg = b"W/F" + b"\x00" + struct.pack("<III", 0, 0, 7) + payload
+    assert _parse_wf_line(msg) == list(payload)
+
+
+def test_wf_uri_uses_ws_kiwi_path():
+    from recorder.kiwi_audio import _ws_uris
+
+    uris = _ws_uris({"host": "g3sdr.com", "port": 8074, "https": False}, "WF")
+    assert uris[0].startswith("ws://g3sdr.com:8074/ws/kiwi/")
+    assert uris[0].endswith("/WF")

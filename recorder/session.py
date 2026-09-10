@@ -18,6 +18,7 @@ from recorder.kiwi_audio import record_kiwi_wav
 from recorder.kiwi_list import fetch_ranked_kiwis
 from recorder.postprocess import mux_screencast, thumbnail
 from recorder.screencast import record_screencast
+from recorder.kiwi_wf import HUNT_HI_KHZ, HUNT_LO_KHZ, hunt_usb_signal
 
 log = logging.getLogger(__name__)
 LOCK_NAME = ".recording.lock"
@@ -340,6 +341,125 @@ async def run_test_20m(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
             pass
 
 
+HUNT_RECORD_S = 75.0
+HUNT_RECORD_ZOOM = 10
+
+
+async def run_test_hunt(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Chasse un QSO USB 14,150–14,260 kHz sur le waterfall, puis capture courte."""
+    cfg = cfg or load_config()
+    root = data_dir(cfg)
+    lock = root / LOCK_NAME
+    if lock.exists():
+        raise RuntimeError("Un enregistrement est déjà en cours")
+    lock.write_text(datetime.now(timezone.utc).isoformat(), encoding="utf-8")
+    started = datetime.now(timezone.utc)
+    vid = started.strftime("%Y-%m-%dT%H%MZ") + "-hunt"
+    session_dir = root / "vacations" / vid
+    session_dir.mkdir(parents=True, exist_ok=True)
+    viewport = (cfg.get("sdr") or {}).get("viewport") or {"width": 1280, "height": 800}
+    ident = (cfg.get("sdr") or {}).get("ident_user") or "ggr-vacations"
+    meta: dict[str, Any] = {
+        "id": vid,
+        "status": "running",
+        "reason": "test-hunt",
+        "title": "Test chasse 20 m USB",
+        "version": version(cfg),
+        "club": cfg.get("club"),
+        "started_at": started.isoformat(),
+        "hunt_khz": [HUNT_LO_KHZ, HUNT_HI_KHZ],
+        "channels": [],
+    }
+    _write_meta(session_dir, meta)
+    try:
+        fleet = await fetch_fleet(cfg)
+        meta["fleet"] = fleet
+        ranked = await fetch_ranked_kiwis(cfg, fleet["lat"], fleet["lon"])
+        if not ranked:
+            raise RuntimeError("Aucun KiwiSDR disponible pour la chasse 20 m")
+        meta["kiwis_ranked"] = ranked[:8]
+        hit = None
+        used = None
+        last_err = None
+        for kiwi in ranked[:5]:
+            try:
+                hit = await hunt_usb_signal(kiwi, ident=ident)
+            except Exception as exc:
+                last_err = str(exc)
+                log.warning("Chasse %s : %s", kiwi.get("name"), exc)
+                continue
+            if hit:
+                used = kiwi
+                break
+            last_err = f"pas de trafic {HUNT_LO_KHZ:.0f}–{HUNT_HI_KHZ:.0f} kHz sur {kiwi.get('name')}"
+            log.info("%s", last_err)
+        if not hit or not used:
+            raise RuntimeError(last_err or "Aucun trafic USB détecté sur 14,150–14,260 kHz")
+        freq = float(hit["freq_khz"])
+        meta["hunt"] = {k: hit[k] for k in hit if k != "kiwi"}
+        wav = session_dir / "audio-tx.wav"
+        webm = session_dir / "screencast-tx.webm"
+        overlay = {
+            "when": started.strftime("%Y-%m-%d %H:%M"),
+            "channel": "Chasse 20 m USB",
+            "freq": f"{freq:.2f} kHz USB",
+            "kiwi": used.get("name"),
+        }
+        raw = await record_screencast(
+            used,
+            freq,
+            webm,
+            HUNT_RECORD_S,
+            mode="usb",
+            zoom=HUNT_RECORD_ZOOM,
+            viewport=viewport,
+            overlay=overlay,
+            snd_wav=wav,
+        )
+        if not (isinstance(raw, dict) and raw.get("snd_packets")):
+            raise RuntimeError(
+                (raw.get("error") if isinstance(raw, dict) else str(raw)) or "capture sans audio"
+            )
+        ch_out = {
+            "id": "tx",
+            "kind": "hunt",
+            "freq_khz": freq,
+            "label": f"QSO {freq:.2f} kHz USB",
+            "zoom": HUNT_RECORD_ZOOM,
+            "screencast": True,
+            "screencast_raw": "screencast-tx.webm",
+            "kiwi": {
+                "name": used.get("name"),
+                "url": used.get("url"),
+                "distance_km": used.get("distance_km"),
+                "fmt": used.get("fmt"),
+                "snr_hf": used.get("snr_hf"),
+            },
+        }
+        if isinstance(raw.get("audio_delay_s"), (int, float)):
+            ch_out["audio_delay_s"] = round(float(raw["audio_delay_s"]), 3)
+        meta["channels"].append(ch_out)
+        meta["raw_results"] = [raw]
+        meta["status"] = "complete"
+        meta["ended_at"] = datetime.now(timezone.utc).isoformat()
+        meta["fleet_fmt"] = fleet.get("fmt") or fmt_latlon(fleet["lat"], fleet["lon"])
+        log.info("Chasse 20 m %s @ %.2f kHz terminée", vid, freq)
+        return meta
+    except Exception as exc:
+        meta["status"] = "error"
+        meta["error"] = str(exc)
+        meta["ended_at"] = datetime.now(timezone.utc).isoformat()
+        log.exception("Chasse 20 m %s en échec", vid)
+        return meta
+    finally:
+        _finalize_media(session_dir, meta)
+        _write_meta(session_dir, meta)
+        try:
+            lock.unlink()
+        except OSError:
+            pass
+
+
 def recover_orphaned(cfg: dict[str, Any] | None = None) -> int:
     """Au démarrage : lock et « running » orphelins — sans mux ffmpeg (trop long pour /health)."""
     cfg = cfg or load_config()
@@ -506,10 +626,21 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Enregistrer une vacation HF GGR / F6KUF")
     parser.add_argument("--once", action="store_true", help="Lancer un enregistrement immédiat (vacation F6KUF)")
     parser.add_argument("--test-20m", action="store_true", help="Scan USB 20 m (test), puis archive dans l’UI")
+    parser.add_argument(
+        "--test-hunt",
+        action="store_true",
+        help="Chasse un QSO USB 14,150–14,260 kHz sur le waterfall, capture 75 s",
+    )
     parser.add_argument("--config", default=os.environ.get("GGR_CONFIG"))
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     cfg = load_config(args.config)
+    if args.test_hunt:
+        meta = asyncio.run(run_test_hunt(cfg))
+        print(json.dumps({"id": meta.get("id"), "status": meta.get("status"), "error": meta.get("error"), "hunt": meta.get("hunt")}, ensure_ascii=False))
+        if meta.get("status") != "complete":
+            raise SystemExit(1)
+        return
     if args.test_20m:
         meta = asyncio.run(run_test_20m(cfg))
         print(json.dumps({"id": meta.get("id"), "status": meta.get("status"), "error": meta.get("error")}, ensure_ascii=False))

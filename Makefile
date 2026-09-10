@@ -1,4 +1,4 @@
-.PHONY: test run record test-20m image apply
+.PHONY: test run record test-20m test-hunt image apply
 
 test:
 	python3 -m pytest -q
@@ -11,6 +11,9 @@ record:
 
 test-20m:
 	GGR_DATA_DIR=./data GGR_CONFIG=./config/default.yaml python3 -m recorder.session --test-20m
+
+test-hunt:
+	GGR_DATA_DIR=./data GGR_CONFIG=./config/default.yaml python3 -m recorder.session --test-hunt
 
 image:
 	docker build -t ggr-vacations:local .

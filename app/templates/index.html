@@ -24,7 +24,7 @@
       <div class="card__body">
         <h2>{{ v.started_at | when }}</h2>
         <p class="meta">
-          {% if v.is_test %}<span class="badge">Test scan 20 m</span>{% endif %}
+          {% if v.is_test %}<span class="badge">{{ v.title or 'Test' }}</span>{% endif %}
           {{ v.title or (v.club.callsign if v.club else club_callsign) }}
           · {{ v.fleet_fmt or (v.fleet.fmt if v.fleet else '') }}
           · <span class="st st--{{ v.status }}">{{ v.status }}</span>

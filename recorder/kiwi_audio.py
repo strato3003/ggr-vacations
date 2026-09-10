@@ -71,8 +71,8 @@ class ImaAdpcmDecoder:
         return samples.tobytes()
 
 
-def _ws_uris(kiwi: dict[str, Any]) -> list[str]:
-    """Chemins SND : firmware récent d’abord, puis kiwiclient historique."""
+def _ws_uris(kiwi: dict[str, Any], stream: str = "SND") -> list[str]:
+    """Chemins WS : firmware récent d’abord, puis kiwiclient historique."""
     scheme = "wss" if kiwi.get("https") else "ws"
     host = kiwi["host"]
     port = int(kiwi["port"])
@@ -80,8 +80,8 @@ def _ws_uris(kiwi: dict[str, Any]) -> list[str]:
     sec = int(time.time())
     origin = f"{scheme}://{host}:{port}"
     return [
-        f"{origin}/ws/kiwi/{ms}/SND",
-        f"{origin}/{sec}/SND",
+        f"{origin}/ws/kiwi/{ms}/{stream}",
+        f"{origin}/{sec}/{stream}",
     ]
 
 
@@ -270,7 +270,7 @@ async def _record_on_uri(
         compression=None,
         ping_interval=None,
         origin=origin,
-        user_agent_header="ggr-vacations/0.1.7",
+        user_agent_header="ggr-vacations/0.1.8",
     ) as ws:
         await ws.send("SET auth t=kiwi p=")
         while time.monotonic() < deadline:

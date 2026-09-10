@@ -6,7 +6,7 @@
     <p class="crumb"><a href="/">← Vacations</a></p>
     <h1>{{ vacation.title or (vacation.started_at | when) }}</h1>
     <p class="meta">
-      {% if vacation.is_test %}<span class="badge">Test scan 20 m USB</span>{% endif %}
+      {% if vacation.is_test %}<span class="badge">{{ vacation.title or 'Test' }}</span>{% endif %}
       {{ vacation.club.callsign if vacation.club else club_callsign }}
       · SDR selon {{ vacation.fleet.label if vacation.fleet else 'flotte' }}
       {% if vacation.fleet %}({{ vacation.fleet.fmt }}){% endif %}
