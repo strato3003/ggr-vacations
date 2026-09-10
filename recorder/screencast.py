@@ -20,10 +20,28 @@ _PAGE_PING_S = 15.0
 _PAGE_PING_TIMEOUT_S = 8.0
 _CLOSE_TIMEOUT_S = 45.0
 
+# Copie binaire par blocs + flush groupé : l’ancien hook (concat octet par octet +
+# un appel Playwright par trame SND) gelait le waterfall Kiwi — son en avance.
 SND_HOOK_JS = """
 (() => {
   const Orig = window.WebSocket;
   if (!Orig || Orig.__ggrHook) return;
+  const buf = [];
+  function u8ToB64(u8) {
+    let s = '';
+    const step = 0x4000;
+    for (let i = 0; i < u8.length; i += step) {
+      s += String.fromCharCode.apply(null, u8.subarray(i, Math.min(i + step, u8.length)));
+    }
+    return btoa(s);
+  }
+  function flush() {
+    if (!buf.length || typeof window.ggrSndBatch !== 'function') return;
+    const chunk = buf.splice(0, buf.length);
+    window.ggrSndBatch(chunk);
+  }
+  window.ggrSndFlush = flush;
+  setInterval(flush, 250);
   function Wrapped(url, protocols) {
     const ws = (protocols === undefined) ? new Orig(url) : new Orig(url, protocols);
     if (String(url).indexOf('/SND') !== -1) {
@@ -33,9 +51,7 @@ SND_HOOK_JS = """
         if (!(d instanceof ArrayBuffer)) return;
         const u8 = new Uint8Array(d);
         if (u8.length < 10 || u8[0] !== 83 || u8[1] !== 78 || u8[2] !== 68) return;
-        let s = '';
-        for (let i = 0; i < u8.length; i++) s += String.fromCharCode(u8[i]);
-        if (typeof window.ggrSndFrame === 'function') window.ggrSndFrame(btoa(s));
+        buf.push(u8ToB64(u8));
       });
     }
     return ws;
@@ -146,14 +162,16 @@ async def record_screencast(
     dest_webm.parent.mkdir(parents=True, exist_ok=True)
     vp = viewport or {"width": 1280, "height": 800}
     url = kiwi_tune_url(kiwi, freq_khz, mode=mode, zoom=zoom)
-    info: dict[str, Any] = {"url": url, "path": str(dest_webm), "ok": False}
+    info: dict[str, Any] = {"url": url, "path": str(dest_webm), "ok": False, "audio_delay_s": 0.0}
     snd_frames: list[bytes] = []
+    video_t0 = time.monotonic()
 
-    async def _on_snd(b64: str) -> None:
-        try:
-            snd_frames.append(base64.b64decode(b64))
-        except Exception:
-            return
+    async def _on_snd_batch(frames: list[str]) -> None:
+        for b64 in frames:
+            try:
+                snd_frames.append(base64.b64decode(b64))
+            except Exception:
+                continue
 
     pw = await async_playwright().start()
     try:
@@ -172,9 +190,10 @@ async def record_screencast(
             ignore_https_errors=True,
         )
         if snd_wav is not None:
-            await context.expose_function("ggrSndFrame", _on_snd)
+            await context.expose_function("ggrSndBatch", _on_snd_batch)
             await context.add_init_script(SND_HOOK_JS)
         page = await context.new_page()
+        video_t0 = time.monotonic()
         try:
             await page.goto(url, wait_until="domcontentloaded", timeout=90_000)
             await asyncio.sleep(5)
@@ -182,6 +201,13 @@ async def record_screencast(
                 html = json.dumps(_overlay_html(overlay))
                 await page.evaluate(f"window.__GGR_OVERLAY_HTML = {html};")
                 await page.evaluate(OVERLAY_JS)
+            snd_frames.clear()
+            rec_t0 = time.monotonic()
+            info["audio_delay_s"] = round(max(0.0, rec_t0 - video_t0), 3)
+            if snd_wav is not None:
+                snd_wav.with_suffix(".delay").write_text(
+                    str(info["audio_delay_s"]), encoding="utf-8"
+                )
             if freq_plan:
                 for idx, (step_freq, dwell) in enumerate(freq_plan):
                     if idx > 0:
@@ -203,6 +229,13 @@ async def record_screencast(
             info["error"] = str(exc)
             log.warning("Screencast Kiwi %s : %s", kiwi.get("name"), exc)
         finally:
+            if snd_wav is not None:
+                try:
+                    await page.evaluate(
+                        "() => { if (typeof window.ggrSndFlush === 'function') window.ggrSndFlush(); }"
+                    )
+                except Exception:
+                    pass
             await _close_playwright(context, browser, page, dest_webm, info)
     finally:
         try:

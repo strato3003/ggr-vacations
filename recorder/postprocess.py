@@ -17,18 +17,19 @@ def _ffmpeg() -> str:
     return bin_path
 
 
-def mux_screencast(video_webm: Path, audio_wav: Path, dest_mp4: Path) -> Path | None:
-    if not video_webm.exists():
-        return None
-    dest_mp4.parent.mkdir(parents=True, exist_ok=True)
-    cmd = [
-        _ffmpeg(),
-        "-y",
-        "-i",
-        str(video_webm),
-    ]
-    has_wav = audio_wav.is_file() and audio_wav.stat().st_size > 64
-    if has_wav:
+def mux_cmd(
+    ffmpeg: str,
+    video_webm: Path,
+    dest_mp4: Path,
+    *,
+    audio_wav: Path | None = None,
+    audio_delay_s: float = 0.0,
+) -> list[str]:
+    """Construit la ligne ffmpeg. -itsoffset retarde l’audio (intro WebM blanche)."""
+    cmd = [ffmpeg, "-y", "-i", str(video_webm)]
+    if audio_wav is not None:
+        if audio_delay_s > 0.001:
+            cmd += ["-itsoffset", f"{audio_delay_s:.3f}"]
         cmd += ["-i", str(audio_wav), "-shortest", "-c:a", "aac", "-b:a", "96k"]
     else:
         cmd += ["-an"]
@@ -45,6 +46,27 @@ def mux_screencast(video_webm: Path, audio_wav: Path, dest_mp4: Path) -> Path | 
         "+faststart",
         str(dest_mp4),
     ]
+    return cmd
+
+
+def mux_screencast(
+    video_webm: Path,
+    audio_wav: Path,
+    dest_mp4: Path,
+    *,
+    audio_delay_s: float = 0.0,
+) -> Path | None:
+    if not video_webm.exists():
+        return None
+    dest_mp4.parent.mkdir(parents=True, exist_ok=True)
+    has_wav = audio_wav.is_file() and audio_wav.stat().st_size > 64
+    cmd = mux_cmd(
+        _ffmpeg(),
+        video_webm,
+        dest_mp4,
+        audio_wav=audio_wav if has_wav else None,
+        audio_delay_s=audio_delay_s,
+    )
     try:
         subprocess.run(cmd, check=True, capture_output=True, text=True, timeout=1200)
         return dest_mp4

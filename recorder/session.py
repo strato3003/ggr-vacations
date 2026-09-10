@@ -116,7 +116,7 @@ async def run_vacation(cfg: dict[str, Any] | None = None, *, reason: str = "sche
         if not assignment:
             raise RuntimeError("Aucun KiwiSDR disponible pour la position de la flotte")
 
-        duration = int((cfg.get("schedule") or {}).get("duration_minutes") or 45) * 60
+        duration = int((cfg.get("schedule") or {}).get("duration_minutes") or 10) * 60
         radio = cfg.get("radio") or {}
         filt = radio.get("usb_filter") or {}
         ident = (cfg.get("sdr") or {}).get("ident_user") or "ggr-vacations"
@@ -194,6 +194,9 @@ async def run_vacation(cfg: dict[str, Any] | None = None, *, reason: str = "sche
         meta["raw_results"] = [
             (repr(r) if isinstance(r, Exception) else r) for r in results
         ]
+        for ch, raw in zip(meta["channels"], results):
+            if isinstance(raw, dict) and isinstance(raw.get("audio_delay_s"), (int, float)):
+                ch["audio_delay_s"] = round(float(raw["audio_delay_s"]), 3)
 
         meta["status"] = "complete"
         meta["ended_at"] = datetime.now(timezone.utc).isoformat()
@@ -405,11 +408,25 @@ def finalize_pending_sessions(cfg: dict[str, Any] | None = None) -> int:
     return n
 
 
+def _channel_audio_delay(session_dir: Path, ch: dict[str, Any]) -> float:
+    raw = ch.get("audio_delay_s")
+    if isinstance(raw, (int, float)):
+        return max(0.0, float(raw))
+    cid = ch.get("id") or "tx"
+    sidecar = session_dir / f"audio-{cid}.delay"
+    if sidecar.is_file():
+        try:
+            return max(0.0, float(sidecar.read_text(encoding="utf-8").strip()))
+        except ValueError:
+            return 0.0
+    return 0.0
+
+
 def _mux_channel(session_dir: Path, ch: dict[str, Any], raw: Path) -> None:
     wav = session_dir / (ch.get("audio_file") or ch.get("audio") or f"audio-{ch.get('id') or 'tx'}.wav")
     cid = ch.get("id") or "tx"
     mp4 = session_dir / f"screencast-{cid}.mp4"
-    if mux_screencast(raw, wav, mp4):
+    if mux_screencast(raw, wav, mp4, audio_delay_s=_channel_audio_delay(session_dir, ch)):
         ch["video"] = mp4.name
         thumb = session_dir / f"thumb-{cid}.jpg"
         at_s = 30 if cid == "tx" else 45

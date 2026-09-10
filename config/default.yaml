@@ -1,5 +1,5 @@
 # Configuration GGR Vacations — F6KUF / flotte Golden Globe Race
-version: "0.1.6"
+version: "0.1.7"
 
 club:
   callsign: F6KUF
@@ -9,10 +9,10 @@ club:
 schedule:
   # Heure TU du bulletin météo
   time_utc: "18:00"
-  # Démarrer l'enregistrement avant l'heure pile (QSY, appels, étalement ± 2–3 kHz)
-  lead_minutes: 10
-  # Durée totale d'enregistrement (bulletin + accusés)
-  duration_minutes: 45
+  # Démarrer avant 18:00 TU (QSY). Avec 10 min de durée : fenêtre 17:58–18:08 TU.
+  lead_minutes: 2
+  # Durée totale d'enregistrement (bulletin + accusés) — 10 min pour limiter le PVC
+  duration_minutes: 10
 
 radio:
   mode: usb
@@ -63,7 +63,7 @@ sdr:
 
 storage:
   data_dir: /data
-  # PVC 5 Gio : une vacation (screencast MP4 + 3 WAV) ≈ 400–600 Mio → ~14 jours
+  # PVC 5 Gio : une vacation 10 min (screencast MP4 + 3 WAV) ≈ 100–150 Mio → ~14 jours
   retention_days: 14
 
 web:

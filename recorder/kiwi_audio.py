@@ -270,7 +270,7 @@ async def _record_on_uri(
         compression=None,
         ping_interval=None,
         origin=origin,
-        user_agent_header="ggr-vacations/0.1.6",
+        user_agent_header="ggr-vacations/0.1.7",
     ) as ws:
         await ws.send("SET auth t=kiwi p=")
         while time.monotonic() < deadline:

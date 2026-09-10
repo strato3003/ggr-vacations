@@ -201,3 +201,36 @@ def test_hold_page_stops_if_chromium_frozen(monkeypatch):
 
     elapsed = asyncio.run(go())
     assert elapsed < 2.0
+
+
+def test_snd_hook_batches_instead_of_per_packet():
+    from recorder.screencast import SND_HOOK_JS
+
+    assert "ggrSndBatch" in SND_HOOK_JS
+    assert "ggrSndFlush" in SND_HOOK_JS
+    assert "ggrSndFrame" not in SND_HOOK_JS
+    assert "fromCharCode.apply" in SND_HOOK_JS
+
+
+def test_mux_cmd_itsoffset_delays_audio():
+    from pathlib import Path
+
+    from recorder.postprocess import mux_cmd
+
+    cmd = mux_cmd(
+        "ffmpeg",
+        Path("v.webm"),
+        Path("o.mp4"),
+        audio_wav=Path("a.wav"),
+        audio_delay_s=6.25,
+    )
+    assert cmd[cmd.index("-itsoffset") + 1] == "6.250"
+    assert cmd.index("-i") < cmd.index("-itsoffset") < cmd.index("a.wav")
+
+
+def test_channel_audio_delay_sidecar(tmp_path):
+    from recorder.session import _channel_audio_delay
+
+    (tmp_path / "audio-tx.delay").write_text("5.5\n", encoding="utf-8")
+    assert _channel_audio_delay(tmp_path, {"id": "tx"}) == 5.5
+    assert _channel_audio_delay(tmp_path, {"id": "tx", "audio_delay_s": 2}) == 2.0

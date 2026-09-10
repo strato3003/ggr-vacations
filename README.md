@@ -1,4 +1,4 @@
-# GGR Vacations 0.1.6
+# GGR Vacations 0.1.7
 
 Archives des **vacations HF** entre le radio-club **F6KUF** et les bateaux de la flotte **Golden Globe Race**.
 
@@ -8,7 +8,7 @@ Tous les jours à **18:00 TU**, F6KUF émet un bulletin météo sur **14.135 MHz
 
 1. **Flotte** — centroïde des bateaux en course via le tracker Yellowbrick (`/BIN/ggr2026/AllPositions3`).
 2. **SDR** — classement des KiwiSDR (distance à la flotte, SNR HF, places libres, couverture 12–17 MHz).
-3. **Enregistrement** — 10 minutes avant 18:00 TU, pendant 45 minutes (configurable) :
+3. **Enregistrement** — 2 minutes avant 18:00 TU, pendant 10 minutes (configurable) :
    - screencast Playwright du Kiwi accordé sur **14.135 MHz USB** ;
    - WAV 12 kHz sur le bulletin et les deux QRG d’accusé ;
    - muxage ffmpeg → MP4 H.264 / AAC.
@@ -61,8 +61,8 @@ Fichier unique : [`config/default.yaml`](config/default.yaml) (monté en ConfigM
 | --- | --- |
 | Bulletin | 14.135 MHz USB, ± 3 kHz, 18:00 TU |
 | Accusé | 16.5515 MHz USB, 12.4185 MHz USB |
-| Avance | 10 min |
-| Durée | 45 min |
+| Avance | 2 min (début 17:58 TU) |
+| Durée | 10 min (fin 18:08 TU) |
 | Tracker | `ggr2026` sur `cf.yb.tl` |
 | Rétention | 14 jours (PVC 5 Gio) |
 

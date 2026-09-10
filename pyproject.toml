@@ -1,6 +1,6 @@
 [project]
 name = "ggr-vacations"
-version = "0.1.6"
+version = "0.1.7"
 description = "Enregistrement des vacations HF F6KUF / flotte Golden Globe Race"
 readme = "README.md"
 requires-python = ">=3.12"
