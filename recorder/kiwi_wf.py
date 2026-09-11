@@ -49,12 +49,15 @@ def usb_dial_from_spectrum(
     lo_khz: float = HUNT_LO_KHZ,
     hi_khz: float = HUNT_HI_KHZ,
     max_freq_khz: float = MAX_FREQ_KHZ,
+    low_hz: int = 300,
+    high_hz: int = 2700,
 ) -> dict[str, Any] | None:
-    """Accord USB = bord gauche du blob le plus fort (téléphonie 20 m)."""
-    if len(bins) < WF_BINS:
+    """Accord USB : blob dont la largeur ≈ filtre USB (low_hz–high_hz), VFO = bord gauche − low_hz."""
+    if len(bins) < WF_BINS or high_hz <= low_hz:
         return None
+    pass_khz = (high_hz - low_hz) / 1000.0
+    offset_khz = low_hz / 1000.0
     freqs = [bin_freq_khz(i, zoom, cf_khz, max_freq_khz=max_freq_khz) for i in range(WF_BINS)]
-    # Écarter les 2 kHz aux bords de fenêtre (artefacts CIC / blob tronqué).
     mask = [lo_khz + 2.0 <= f <= hi_khz - 2.0 for f in freqs]
     band = [bins[i] for i, ok in enumerate(mask) if ok]
     if len(band) < 16:
@@ -65,11 +68,15 @@ def usb_dial_from_spectrum(
     if peak - noise < 18:
         return None
     thr = noise + 0.35 * (peak - noise)
-    bin_hz = span_khz(zoom, max_freq_khz) / WF_BINS * 1000.0
-    min_w = max(6, int(1.2e3 / bin_hz))
-    max_w = max(min_w + 1, int(5.0e3 / bin_hz))
+    bin_khz = span_khz(zoom, max_freq_khz) / WF_BINS
+    min_w = pass_khz * 0.55
+    max_w = pass_khz * 1.40
 
-    best: tuple[float, int, int] | None = None
+    def _energy(f0: float, f1: float) -> float:
+        lo, hi = (f0, f1) if f0 <= f1 else (f1, f0)
+        return sum(bins[i] - noise for i, f in enumerate(freqs) if lo <= f < hi)
+
+    best: tuple[float, int, int, float] | None = None
     i = 0
     while i < WF_BINS:
         if not mask[i] or bins[i] < thr:
@@ -78,23 +85,25 @@ def usb_dial_from_spectrum(
         j = i
         while j < WF_BINS and mask[j] and bins[j] >= thr:
             j += 1
-        width = j - i
-        if min_w <= width <= max_w:
-            prominence = max(bins[i:j]) - noise
-            if best is None or prominence > best[0]:
-                best = (prominence, i, j)
+        width_khz = (j - i) * bin_khz
+        if min_w <= width_khz <= max_w:
+            f_left = freqs[i]
+            dial = f_left - offset_khz
+            e_usb = _energy(dial + offset_khz, dial + high_hz / 1000.0)
+            e_lsb = _energy(dial - high_hz / 1000.0, dial - offset_khz)
+            # USB : énergie dans 300–2700 Hz au-dessus du VFO, pas en dessous (LSB).
+            if e_usb > 0 and e_usb >= e_lsb * 1.2:
+                width_match = 1.0 - abs(width_khz - pass_khz) / pass_khz
+                prominence = max(bins[i:j]) - noise
+                score = prominence * max(0.0, width_match) * (e_usb / (e_lsb + 1.0))
+                if best is None or score > best[0]:
+                    best = (score, i, j, width_khz)
         i = j
     if best is None:
-        inner = [i for i, ok in enumerate(mask) if ok]
-        if not inner:
-            return None
-        idx = max(inner, key=lambda k: bins[k])
-        if bins[idx] - noise < 18:
-            return None
-        dial = freqs[idx] - 1.4
-    else:
-        dial = freqs[best[1]]
-    dial = min(max(dial, lo_khz), hi_khz - 0.5)
+        return None
+    _, i0, j0, width_khz = best
+    dial = freqs[i0] - offset_khz
+    dial = min(max(dial, lo_khz), hi_khz - high_hz / 1000.0)
     dial = round(dial * 20.0) / 20.0
     return {
         "freq_khz": dial,
@@ -102,6 +111,9 @@ def usb_dial_from_spectrum(
         "noise": round(noise, 1),
         "cf_khz": cf_khz,
         "zoom": zoom,
+        "width_hz": int(round(width_khz * 1000)),
+        "usb_low_hz": int(low_hz),
+        "usb_high_hz": int(high_hz),
     }
 
 
@@ -122,6 +134,8 @@ async def hunt_usb_signal(
     hi_khz: float = HUNT_HI_KHZ,
     ident: str = "ggr-vacations",
     timeout_s: float = 12.0,
+    low_hz: int = 300,
+    high_hz: int = 2700,
 ) -> dict[str, Any] | None:
     """Ouvre le WF, moyenne quelques lignes, renvoie l’accord USB ou None."""
     origin = kiwi.get("url") or f"http://{kiwi['host']}:{kiwi['port']}"
@@ -136,6 +150,8 @@ async def hunt_usb_signal(
                 hi_khz=hi_khz,
                 ident=ident,
                 timeout_s=timeout_s,
+                low_hz=low_hz,
+                high_hz=high_hz,
             )
             if found:
                 return found
@@ -157,6 +173,8 @@ async def _hunt_on_uri(
     hi_khz: float,
     ident: str,
     timeout_s: float,
+    low_hz: int = 300,
+    high_hz: int = 2700,
 ) -> dict[str, Any] | None:
     deadline = time.monotonic() + timeout_s
     lines: list[list[int]] = []
@@ -240,16 +258,19 @@ async def _hunt_on_uri(
         lo_khz=lo_khz,
         hi_khz=hi_khz,
         max_freq_khz=max_freq,
+        low_hz=low_hz,
+        high_hz=high_hz,
     )
     if hit:
         hit["kiwi"] = kiwi.get("name")
         hit["lines"] = len(lines)
         log.info(
-            "Trafic USB %.2f kHz (pic %.0f, bruit %.0f, %s lignes) sur %s",
+            "Trafic USB %.2f kHz (filtre %s–%s Hz, largeur mesurée %s Hz, pic %.0f) sur %s",
             hit["freq_khz"],
+            low_hz,
+            high_hz,
+            hit.get("width_hz"),
             hit["peak_db"],
-            hit["noise"],
-            len(lines),
             kiwi.get("name"),
         )
     return hit

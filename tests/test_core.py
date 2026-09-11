@@ -246,19 +246,45 @@ def test_usb_dial_from_left_edge_of_ssb_blob():
     )
 
     bins = [40.0] * WF_BINS
+    # Voix USB 300–2700 Hz au-dessus de 14 200,0 kHz.
     i0 = min(
         range(WF_BINS),
-        key=lambda i: abs(bin_freq_khz(i, HUNT_ZOOM, HUNT_CF_KHZ) - 14200.0),
+        key=lambda i: abs(bin_freq_khz(i, HUNT_ZOOM, HUNT_CF_KHZ) - 14200.3),
     )
     i1 = min(
         range(WF_BINS),
-        key=lambda i: abs(bin_freq_khz(i, HUNT_ZOOM, HUNT_CF_KHZ) - 14202.4),
+        key=lambda i: abs(bin_freq_khz(i, HUNT_ZOOM, HUNT_CF_KHZ) - 14202.7),
     )
     for i in range(min(i0, i1), max(i0, i1) + 1):
         bins[i] = 180.0
-    hit = usb_dial_from_spectrum(bins, zoom=HUNT_ZOOM, cf_khz=HUNT_CF_KHZ)
+    hit = usb_dial_from_spectrum(
+        bins, zoom=HUNT_ZOOM, cf_khz=HUNT_CF_KHZ, low_hz=300, high_hz=2700
+    )
     assert hit is not None
-    assert abs(hit["freq_khz"] - 14200.0) < 0.25
+    assert abs(hit["freq_khz"] - 14200.0) < 0.2
+    assert 1800 <= hit["width_hz"] <= 3000
+    assert hit["usb_low_hz"] == 300 and hit["usb_high_hz"] == 2700
+
+
+def test_usb_dial_rejects_cw_and_wide_am():
+    from recorder.kiwi_wf import (
+        HUNT_CF_KHZ,
+        HUNT_ZOOM,
+        WF_BINS,
+        bin_freq_khz,
+        usb_dial_from_spectrum,
+    )
+
+    def fill(f0: float, f1: float) -> list[float]:
+        bins = [40.0] * WF_BINS
+        i0 = min(range(WF_BINS), key=lambda i: abs(bin_freq_khz(i, HUNT_ZOOM, HUNT_CF_KHZ) - f0))
+        i1 = min(range(WF_BINS), key=lambda i: abs(bin_freq_khz(i, HUNT_ZOOM, HUNT_CF_KHZ) - f1))
+        for i in range(min(i0, i1), max(i0, i1) + 1):
+            bins[i] = 180.0
+        return bins
+
+    assert usb_dial_from_spectrum(fill(14220.0, 14220.4), zoom=HUNT_ZOOM, cf_khz=HUNT_CF_KHZ) is None
+    assert usb_dial_from_spectrum(fill(14200.0, 14208.0), zoom=HUNT_ZOOM, cf_khz=HUNT_CF_KHZ) is None
 
 
 def test_usb_dial_none_on_flat_noise():

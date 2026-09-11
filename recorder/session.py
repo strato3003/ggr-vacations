@@ -359,6 +359,9 @@ async def run_test_hunt(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
     session_dir.mkdir(parents=True, exist_ok=True)
     viewport = (cfg.get("sdr") or {}).get("viewport") or {"width": 1280, "height": 800}
     ident = (cfg.get("sdr") or {}).get("ident_user") or "ggr-vacations"
+    filt = (cfg.get("radio") or {}).get("usb_filter") or {}
+    low_hz = int(filt.get("low_hz") or 300)
+    high_hz = int(filt.get("high_hz") or 2700)
     meta: dict[str, Any] = {
         "id": vid,
         "status": "running",
@@ -383,7 +386,7 @@ async def run_test_hunt(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
         last_err = None
         for kiwi in ranked[:5]:
             try:
-                hit = await hunt_usb_signal(kiwi, ident=ident)
+                hit = await hunt_usb_signal(kiwi, ident=ident, low_hz=low_hz, high_hz=high_hz)
             except Exception as exc:
                 last_err = str(exc)
                 log.warning("Chasse %s : %s", kiwi.get("name"), exc)
@@ -402,7 +405,7 @@ async def run_test_hunt(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
         overlay = {
             "when": started.strftime("%Y-%m-%d %H:%M"),
             "channel": "Chasse 20 m USB",
-            "freq": f"{freq:.2f} kHz USB",
+            "freq": f"{freq:.2f} kHz USB · {low_hz}–{high_hz} Hz",
             "kiwi": used.get("name"),
         }
         raw = await record_screencast(
