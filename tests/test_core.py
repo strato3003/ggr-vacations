@@ -159,6 +159,34 @@ def test_recover_orphaned_clears_lock_and_running(tmp_path):
     assert "interrompu" in saved["error"]
 
 
+def test_delete_vacation_removes_folder(tmp_path):
+    from app.store import delete_vacation
+
+    cfg = {"storage": {"data_dir": str(tmp_path)}}
+    folder = tmp_path / "vacations" / "2026-09-11T0900Z-qrg"
+    folder.mkdir(parents=True)
+    (folder / "metadata.json").write_text('{"id": "2026-09-11T0900Z-qrg", "status": "complete"}', encoding="utf-8")
+    (folder / "audio-tx.wav").write_bytes(b"RIFF")
+    assert delete_vacation("2026-09-11T0900Z-qrg", cfg) is None
+    assert not folder.exists()
+    assert delete_vacation("2026-09-11T0900Z-qrg", cfg) == "introuvable"
+    assert delete_vacation("../etc", cfg) == "identifiant invalide"
+
+
+def test_delete_vacation_refuses_running(tmp_path):
+    from app.store import delete_vacation
+
+    cfg = {"storage": {"data_dir": str(tmp_path)}}
+    (tmp_path / ".recording.lock").write_text("now", encoding="utf-8")
+    folder = tmp_path / "vacations" / "2026-09-11T0910Z"
+    folder.mkdir(parents=True)
+    (folder / "metadata.json").write_text(
+        '{"id": "2026-09-11T0910Z", "status": "running"}', encoding="utf-8"
+    )
+    assert delete_vacation("2026-09-11T0910Z", cfg) == "enregistrement en cours"
+    assert folder.exists()
+
+
 def test_finalize_pending_promotes_orphan_with_audio(tmp_path):
     import json
 

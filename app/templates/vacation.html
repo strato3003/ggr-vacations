@@ -12,6 +12,9 @@
       {% if vacation.fleet %}({{ vacation.fleet.fmt }}){% endif %}
       · {{ vacation.status }}
     </p>
+    <p class="vac__actions">
+      <button type="button" class="btn btn--danger" data-delete-vacation="{{ vacation.id }}">Supprimer cette vacation</button>
+    </p>
   </header>
 
   {% if vacation.tx and vacation.tx.video %}

@@ -211,6 +211,23 @@ async def api_vacation(vacation_id: str):
     return meta
 
 
+@app.delete("/api/vacations/{vacation_id}")
+async def api_vacation_delete(
+    vacation_id: str,
+    x_admin_token: str | None = Header(default=None, alias="X-Admin-Token"),
+):
+    cfg = load_config()
+    _require_admin(x_admin_token, cfg)
+    err = store.delete_vacation(vacation_id, cfg)
+    if err == "introuvable":
+        raise HTTPException(404, "Vacation introuvable")
+    if err == "enregistrement en cours":
+        raise HTTPException(409, "Vacation en cours d’enregistrement")
+    if err:
+        raise HTTPException(400, err)
+    return {"ok": True, "deleted": vacation_id}
+
+
 @app.get("/api/settings")
 async def api_settings_get():
     cfg = load_config()

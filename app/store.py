@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 import json
+import re
+import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from recorder.config import data_dir, load_config
+
+_VACATION_ID = re.compile(r"^[0-9A-Za-z][0-9A-Za-z._-]{0,80}$")
 
 
 def vacations_root(cfg: dict[str, Any] | None = None) -> Path:
@@ -71,6 +75,20 @@ def media_path(vacation_id: str, filename: str, cfg: dict[str, Any] | None = Non
 
 def recording_in_progress(cfg: dict[str, Any] | None = None) -> bool:
     return (data_dir(cfg) / ".recording.lock").exists()
+
+
+def delete_vacation(vacation_id: str, cfg: dict[str, Any] | None = None) -> str | None:
+    """Supprime le dossier d’une vacation. None = ok, sinon motif d’échec."""
+    if not _VACATION_ID.match(vacation_id or "") or ".." in vacation_id:
+        return "identifiant invalide"
+    folder = vacations_root(cfg) / vacation_id
+    if not folder.is_dir() or not (folder / "metadata.json").is_file():
+        return "introuvable"
+    meta = get_vacation(vacation_id, cfg)
+    if meta and meta.get("status") == "running" and recording_in_progress(cfg):
+        return "enregistrement en cours"
+    shutil.rmtree(folder)
+    return None
 
 
 def iso_to_label(iso: str | None) -> str:

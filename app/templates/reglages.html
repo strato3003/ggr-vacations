@@ -4,36 +4,54 @@
 <article class="prose">
   <h1>Réglages radio</h1>
   <p>
-    Record test : une QRG libre, Kiwi le plus proche de la flotte, suivi USB
-    ± {{ qrg_tolerance_khz }} kHz si la case est cochée.
-    La vacation quotidienne (bulletin + ACK France / flotte / Tahiti) reste inchangée.
+    Trois actions distinctes : tester une QRG maintenant, mémoriser les fréquences
+    de la vacation quotidienne, ou lancer cette vacation comme à 18:00 TU.
   </p>
 </article>
 
+<p id="settings-banner" class="settings-banner" role="status" hidden></p>
+
 <form id="reglages-form" class="settings" autocomplete="off">
+  <fieldset>
+    <legend>Jeton (obligatoire pour les 3 boutons)</legend>
+    <label>
+      Jeton administrateur
+      <input name="admin_token" type="password" autocomplete="off"
+             placeholder="coller le jeton ici">
+    </label>
+    {% if not admin_configured %}
+    <p class="err">Aucun jeton n’est configuré sur le serveur.</p>
+    {% endif %}
+  </fieldset>
+
   <fieldset id="record-test">
-    <legend>Record immédiat (QRG libre)</legend>
-    <p class="hint">kHz (14135) ou MHz (14.135). Durée courte pour tester le suivi QRM.</p>
+    <legend>1 · Tester une fréquence maintenant</legend>
+    <p class="hint">Lance un screencast + audio USB sur <strong>une seule QRG</strong>
+      (kHz 14135 ou MHz 14.135), Kiwi le plus proche de la flotte.
+      Ne change pas les fréquences de la vacation de 18:00 TU.</p>
     <label>
       QRG
       <input name="test_freq" type="number" step="0.0001" min="1.5" max="30000" required
              value="{{ '%.4f'|format(tx_khz) }}">
     </label>
     <label>
-      Durée test (min)
+      Durée du test (min)
       <input name="test_duration_minutes" type="number" step="1" min="1" max="45" required value="2">
     </label>
     <label class="settings__check">
       <input name="test_hunt" type="checkbox" checked>
-      Suivre un offset USB ± {{ qrg_tolerance_khz }} kHz
+      Chercher un signal USB à ± {{ qrg_tolerance_khz }} kHz (QRM)
     </label>
     <p class="settings__actions">
-      <button type="button" class="btn btn--rx" id="record-qrg">Record cette QRG</button>
+      <button type="button" class="btn btn--rx" id="record-qrg">Lancer le test radio</button>
     </p>
+    <p class="settings-msg" data-for="qrg" role="status"></p>
   </fieldset>
 
   <fieldset>
-    <legend>Fréquences de vacation (kHz, USB)</legend>
+    <legend>2 · Fréquences de la vacation 18:00 TU (kHz USB)</legend>
+    <p class="hint">Ces valeurs servent au passage quotidien et au bouton « vacation complète ».
+      <strong>Sauver</strong> écrit seulement le fichier de config, sans allumer de Kiwi.</p>
     <label>
       Bulletin {{ club_callsign }}
       <input name="tx_khz" type="number" step="0.0001" min="1000" max="30000" required
@@ -54,13 +72,8 @@
       <input name="qrg_tolerance_khz" type="number" step="0.1" min="0.1" max="15" required
              value="{{ qrg_tolerance_khz }}">
     </label>
-  </fieldset>
-  <fieldset>
-    <legend>Horaire (TU)</legend>
-    <p class="hint">Bulletin à <strong>{{ time_utc }} TU</strong>. L’enregistrement démarre
-      {{ schedule_lead }} min avant (17:59 TU si avance = 1 et bulletin à 18:00).</p>
     <label>
-      Avance (min)
+      Avance avant {{ time_utc }} TU (min)
       <input name="lead_minutes" type="number" step="1" min="0" max="15" required
              value="{{ schedule_lead }}">
     </label>
@@ -69,24 +82,22 @@
       <input name="duration_minutes" type="number" step="1" min="1" max="45" required
              value="{{ duration_minutes }}">
     </label>
+    <p class="settings__actions">
+      <button type="submit" class="btn" id="save-qrg">Sauver les fréquences</button>
+    </p>
+    <p class="settings-msg" data-for="save" role="status"></p>
   </fieldset>
+
   <fieldset>
-    <legend>Administration</legend>
-    <label>
-      Jeton administrateur
-      <input name="admin_token" type="password" autocomplete="off"
-             placeholder="GGR_ADMIN_TOKEN">
-    </label>
-    {% if not admin_configured %}
-    <p class="err">Aucun jeton n’est configuré sur le serveur (<code>GGR_ADMIN_TOKEN</code>).
-      Enregistrement et sauvegarde impossibles jusqu’à création du secret k3s.</p>
-    {% endif %}
+    <legend>3 · Vacation complète (comme à 18:00 TU)</legend>
+    <p class="hint">Enregistre <strong>maintenant</strong> le bulletin + les deux ACK
+      (flotte, France, Tahiti) pendant la durée indiquée ci-dessus.
+      À utiliser pour un vrai passage, pas pour un essai QRG.</p>
+    <p class="settings__actions">
+      <button type="button" class="btn" id="record-now">Lancer la vacation complète</button>
+    </p>
+    <p class="settings-msg" data-for="vac" role="status"></p>
   </fieldset>
-  <p class="settings__actions">
-    <button type="submit" class="btn">Enregistrer les QRG</button>
-    <button type="button" class="btn" id="record-now">Record vacation complète</button>
-  </p>
-  <p id="settings-msg" class="hint" role="status"></p>
 </form>
 {% endblock %}
 {% block extra_js %}
