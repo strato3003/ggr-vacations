@@ -13,7 +13,9 @@
       · {{ vacation.status }}
     </p>
     <p class="vac__actions">
-      <button type="button" class="btn btn--danger" data-delete-vacation="{{ vacation.id }}">Supprimer cette vacation</button>
+      <button type="button" class="btn btn--danger js-del-vac" hidden
+              data-delete-vacation="{{ vacation.id }}">Supprimer cette vacation</button>
+      <span class="hint js-del-need-token">Suppression : coller le jeton dans Réglages, puis recharger cette page.</span>
     </p>
   </header>
 

@@ -1,4 +1,7 @@
 (() => {
+  const TOKEN_KEY = "ggr-admin-token";
+  const token = () => localStorage.getItem(TOKEN_KEY) || "";
+
   const el = document.getElementById("countdown");
   if (el && el.dataset.iso) {
     const target = new Date(el.dataset.iso);
@@ -18,25 +21,31 @@
     setInterval(tick, 30000);
   }
 
-  const TOKEN_KEY = "ggr-admin-token";
-  document.querySelectorAll("[data-delete-vacation]").forEach((btn) => {
+  const hasToken = !!token();
+  document.querySelectorAll(".js-del-vac").forEach((btn) => {
+    btn.hidden = !hasToken;
+  });
+  document.querySelectorAll(".js-del-need-token").forEach((n) => {
+    n.hidden = hasToken;
+  });
+
+  document.querySelectorAll(".js-del-vac").forEach((btn) => {
     btn.addEventListener("click", async (ev) => {
       ev.preventDefault();
       ev.stopPropagation();
       const id = btn.getAttribute("data-delete-vacation");
+      const tok = token();
       if (!id) return;
-      if (!window.confirm(`Supprimer définitivement ${id} (audio, vidéo, dossier) ?`)) return;
-      const token = localStorage.getItem(TOKEN_KEY) || window.prompt("Jeton administrateur :") || "";
-      if (token) localStorage.setItem(TOKEN_KEY, token);
-      if (!token) {
-        window.alert("Jeton manquant. Ouvre Réglages et colle le jeton, puis réessaie.");
+      if (!tok) {
+        window.alert("Suppression refusée : renseigne le jeton dans Réglages, puis recharge.");
         return;
       }
+      if (!window.confirm(`Supprimer définitivement ${id} (audio, vidéo, dossier) ?`)) return;
       btn.disabled = true;
       try {
-        const res = await fetch("/api/vacations/" + encodeURIComponent(id), {
-          method: "DELETE",
-          headers: { "X-Admin-Token": token },
+        const res = await fetch("/api/vacations/" + encodeURIComponent(id) + "/delete", {
+          method: "POST",
+          headers: { "X-Admin-Token": tok },
         });
         const data = await res.json().catch(() => ({}));
         if (res.ok) {
@@ -51,7 +60,7 @@
         const detail = Array.isArray(data.detail)
           ? data.detail.map((x) => x.msg || x).join(" ")
           : data.detail;
-        window.alert(detail || `Erreur ${res.status}`);
+        window.alert(detail || `Suppression impossible (${res.status})`);
       } catch (err) {
         window.alert(String(err));
       } finally {

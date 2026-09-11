@@ -228,6 +228,15 @@ async def api_vacation_delete(
     return {"ok": True, "deleted": vacation_id}
 
 
+@app.post("/api/vacations/{vacation_id}/delete")
+async def api_vacation_delete_post(
+    vacation_id: str,
+    x_admin_token: str | None = Header(default=None, alias="X-Admin-Token"),
+):
+    """Alias POST : certains proxys bloquent DELETE."""
+    return await api_vacation_delete(vacation_id, x_admin_token)
+
+
 @app.get("/api/settings")
 async def api_settings_get():
     cfg = load_config()

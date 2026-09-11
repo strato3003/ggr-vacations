@@ -178,10 +178,12 @@ h2 { font-size: 1.15rem; margin-top: 2rem; }
   position: absolute;
   top: 0.45rem;
   right: 0.45rem;
-  z-index: 1;
+  z-index: 20;
   font-size: 0.75rem;
   padding: 0.3rem 0.5rem;
+  pointer-events: auto;
 }
+.card > a { display: block; }
 .vac__actions { margin: 0.8rem 0 1.2rem; }
 .btn {
   font-family: var(--sans);

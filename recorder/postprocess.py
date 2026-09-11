@@ -30,7 +30,7 @@ def mux_cmd(
     if audio_wav is not None:
         if audio_delay_s > 0.001:
             cmd += ["-itsoffset", f"{audio_delay_s:.3f}"]
-        cmd += ["-i", str(audio_wav), "-shortest", "-c:a", "aac", "-b:a", "96k"]
+        cmd += ["-i", str(audio_wav), "-shortest", "-c:a", "aac", "-b:a", "128k"]
     else:
         cmd += ["-an"]
     cmd += [

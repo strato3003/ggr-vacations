@@ -127,6 +127,33 @@ def _pcm_from_snd(body: bytes, decoder: ImaAdpcmDecoder) -> bytes:
     return struct.pack("<" + "h" * count, *samples)
 
 
+def amplify_pcm(pcm: bytes, *, target_peak: int = 28000, max_gain: float = 10.0) -> bytes:
+    """Remonte le niveau vers ~ −1 dBFS (le slider Kiwi n’est pas dans le flux SND)."""
+    n = len(pcm) // 2
+    if n < 8:
+        return pcm
+    samples = array.array("h")
+    samples.frombytes(pcm[: n * 2])
+    peak = 0
+    for sample in samples:
+        a = sample if sample >= 0 else -sample
+        if a > peak:
+            peak = a
+    if peak < 48 or peak >= target_peak:
+        return pcm
+    gain = min(float(target_peak) / float(peak), float(max_gain))
+    out = array.array("h")
+    for sample in samples:
+        v = int(sample * gain)
+        if v > 32767:
+            v = 32767
+        elif v < -32768:
+            v = -32768
+        out.append(v)
+    log.info("Gain audio ×%.2f (crête %s → %s)", gain, peak, min(32767, int(peak * gain)))
+    return out.tobytes()
+
+
 def wav_from_snd_frames(frames: list[bytes], dest: Path) -> bool:
     """Écrit un WAV 12 kHz à partir de paquets WebSocket bruts (tag SND inclus)."""
     decoder = ImaAdpcmDecoder()
@@ -148,7 +175,7 @@ def wav_from_snd_frames(frames: list[bytes], dest: Path) -> bool:
         wav.setnchannels(1)
         wav.setsampwidth(2)
         wav.setframerate(SAMPLE_RATE)
-        wav.writeframes(b"".join(pcm))
+        wav.writeframes(amplify_pcm(b"".join(pcm)))
     log.info("WAV %s (%.1f s, %s paquets)", dest.name, total / SAMPLE_RATE, len(frames))
     return True
 
@@ -167,7 +194,7 @@ async def _send_rx_setup(
     await ws.send("SET geo=ggr-vacations")
     await ws.send("SET compression=0")
     await ws.send(f"SET mod={mode} low_cut={low_hz} high_cut={high_hz} freq={freq_khz:.3f}")
-    await ws.send("SET agc=1 hang=0 thresh=-100 slope=6 decay=1000 manGain=50")
+    await ws.send("SET agc=1 hang=0 thresh=-20 slope=6 decay=1000 manGain=50")
     await ws.send(f"SET AR OK in={ar_in} out=12000")
     await ws.send("SET squelch=0 max=0")
 
@@ -360,7 +387,7 @@ async def _record_on_uri(
         wav.setnchannels(1)
         wav.setsampwidth(2)
         wav.setframerate(SAMPLE_RATE)
-        wav.writeframes(b"".join(pcm_chunks))
+        wav.writeframes(amplify_pcm(b"".join(pcm_chunks)))
     info.update(
         {
             "ok": True,

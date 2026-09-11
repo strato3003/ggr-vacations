@@ -137,6 +137,24 @@ def test_wav_from_snd_frames(tmp_path):
     assert dest.stat().st_size > 44
 
 
+def test_amplify_pcm_raises_quiet_peak():
+    from recorder.kiwi_audio import amplify_pcm
+
+    quiet = struct.pack("<h", 2000) * 64
+    out = amplify_pcm(quiet)
+    peak = max(abs(s) for s in struct.unpack("<" + "h" * 64, out))
+    assert peak >= 20000
+
+
+def test_kiwi_agc_uses_web_threshold():
+    from recorder.kiwi_audio import _send_rx_setup
+    import inspect
+
+    src = inspect.getsource(_send_rx_setup)
+    assert "thresh=-20" in src
+    assert "thresh=-100" not in src
+
+
 def test_recover_orphaned_clears_lock_and_running(tmp_path):
     import json
 
