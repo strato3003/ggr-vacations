@@ -1,16 +1,18 @@
-# GGR Vacations 0.1.8
+# GGR Vacations 0.1.9
 
 Archives des **vacations HF** entre le radio-club **F6KUF** et les bateaux de la flotte **Golden Globe Race**.
 
-Tous les jours à **18:00 TU**, F6KUF émet un bulletin météo sur **14.135 MHz USB** (QRG nominale ± 2 à 3 kHz) et écoute les accusés de réception sur **16.5515 MHz USB** et **12.4185 MHz USB**. L’application choisit les meilleurs [KiwiSDR](http://kiwisdr.com/) selon la position moyenne de la flotte, enregistre l’audio USB et capture un **screencast** de l’interface SDR (waterfall / VFO) pour le rejouer ensuite comme si l’on était devant le récepteur.
+Tous les jours à **18:00 TU**, F6KUF émet un bulletin météo sur **14.135 MHz USB** (QRG nominale ± 5 kHz, suivi automatique si QRM) et écoute les accusés de réception sur **16.5515 MHz USB** et **12.4185 MHz USB**. L’application choisit les [KiwiSDR](http://kiwisdr.com/) selon la position : **bulletin 14 MHz** sur le récepteur le plus proche de la flotte ; **ACK** en parallèle près des bateaux, **en France** et **vers Tahiti** (relais prévu quand la flotte sera dans l’océan Indien). Audio USB + **screencast** de l’interface SDR pour le replay.
+
+Les trois QRG, la tolérance, l’avance et la durée se règlent dans l’UI (**Réglages**). Un **record immédiat** permet de tester le suivi ± 5 kHz sans attendre 18:00 TU.
 
 ## Fonctionnement
 
 1. **Flotte** — centroïde des bateaux en course via le tracker Yellowbrick (`/BIN/ggr2026/AllPositions3`).
-2. **SDR** — classement des KiwiSDR (distance à la flotte, SNR HF, places libres, couverture 12–17 MHz).
-3. **Enregistrement** — 2 minutes avant 18:00 TU, pendant 10 minutes (configurable) :
-   - screencast Playwright du Kiwi accordé sur **14.135 MHz USB** ;
-   - WAV 12 kHz sur le bulletin et les deux QRG d’accusé ;
+2. **SDR** — bulletin : Kiwi le plus proche de la flotte ; ACK : un Kiwi près de la flotte, un en France (≤ 1500 km des Sables-d’Olonne), un vers Tahiti / Papeete (≤ 2500 km).
+3. **Enregistrement** — 1 minute avant 18:00 TU, pendant 10 minutes (configurable) :
+   - chasse USB autour de **14.135 MHz** (± 5 kHz) puis screencast Playwright ;
+   - WAV 12 kHz sur le bulletin **et** les deux QRG d’accusé **en même temps**, aux trois sites ;
    - muxage ffmpeg → MP4 H.264 / AAC.
 4. **Replay** — interface web (français) : liste des vacations, lecteur vidéo, pistes audio.
 
@@ -47,22 +49,34 @@ sudo k3s kubectl -n ggr-vacations get pods,svc,pvc
 
 Le nom DNS est `ggr-vacations.k3s.lpb.ovh` (`k8s/ingress.yaml`). Traefik (k3s) termine le TLS ; cert-manager renouvelle le certificat.
 
-Enregistrement manuel (jeton `web.admin_token` ou variable `GGR_ADMIN_TOKEN`) :
+Enregistrement manuel (page **Réglages** → *Record cette QRG*, ou jeton `GGR_ADMIN_TOKEN`) :
 
 ```bash
-curl -X POST -H "X-Admin-Token: …" https://ggr-vacations.k3s.lpb.ovh/api/vacations/record
+# Test sur une QRG libre (14.135 MHz ou 14135 kHz, suivi ± 5 kHz)
+curl -X POST -H "X-Admin-Token: …" \
+  -H "Content-Type: application/json" \
+  -d '{"freq_khz": 14.135, "duration_minutes": 2, "hunt": true}' \
+  https://ggr-vacations.k3s.lpb.ovh/api/vacations/record
+
+# Vacation complète (bulletin + ACK flotte / France / Tahiti)
+curl -X POST -H "X-Admin-Token: …" \
+  -H "Content-Type: application/json" \
+  -d '{"duration_minutes": 10}' \
+  https://ggr-vacations.k3s.lpb.ovh/api/vacations/record
 ```
+
+Les QRG survivent au redéploiement (fichier `/data/settings.json` sur le PVC). Le ConfigMap k3s reste le défaut.
 
 ## Configuration radio
 
-Fichier unique : [`config/default.yaml`](config/default.yaml) (monté en ConfigMap k3s).
+Défauts dans [`config/default.yaml`](config/default.yaml) ; overrides runtime dans **Réglages**.
 
 | Paramètre | Valeur |
 | --- | --- |
-| Bulletin | 14.135 MHz USB, ± 3 kHz, 18:00 TU |
-| Accusé | 16.5515 MHz USB, 12.4185 MHz USB |
-| Avance | 2 min (début 17:58 TU) |
-| Durée | 10 min (fin 18:08 TU) |
+| Bulletin | 14.135 MHz USB, ± 5 kHz, 18:00 TU |
+| Accusé | 16.5515 MHz USB, 12.4185 MHz USB (flotte + France + Tahiti, en parallèle du bulletin) |
+| Avance | 1 min (début 17:59 TU) |
+| Durée | 10 min (fin 18:09 TU) |
 | Tracker | `ggr2026` sur `cf.yb.tl` |
 | Rétention | 14 jours (PVC 5 Gio) |
 

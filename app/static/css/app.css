@@ -31,7 +31,7 @@ a:hover { text-decoration: underline; }
 .logo { font-weight: 600; letter-spacing: 0.04em; color: var(--foam); font-size: 1.35rem; }
 .ver { color: var(--brass); font-family: var(--mono); font-size: 0.85rem; }
 .tag { margin: 0.2rem 0 0; color: var(--muted); font-size: 0.92rem; }
-.nav { display: flex; gap: 1.1rem; }
+.nav { display: flex; gap: 0.85rem; flex-wrap: wrap; justify-content: flex-end; }
 
 .qrg-bar {
   display: grid;
@@ -112,6 +112,58 @@ h2 { font-size: 1.15rem; margin-top: 2rem; }
 .prose ul { line-height: 1.55; }
 .foot { padding: 1.5rem; color: var(--muted); font-size: 0.82rem; border-top: 1px solid var(--line); }
 .crumb { margin-bottom: 0.3rem; }
+
+.settings { max-width: 42rem; margin: 1.5rem 0 2rem; }
+.settings fieldset {
+  border: 1px solid var(--line);
+  background: var(--panel);
+  margin: 0 0 1rem;
+  padding: 1rem 1.1rem 1.15rem;
+}
+.settings legend { color: var(--brass); font-weight: 600; padding: 0 0.35rem; }
+.settings label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  margin: 0.65rem 0;
+  color: var(--muted);
+  font-size: 0.82rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.settings input {
+  font-family: var(--mono);
+  font-size: 1.05rem;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--foam);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  padding: 0.45rem 0.6rem;
+}
+.settings__actions { display: flex; flex-wrap: wrap; gap: 0.75rem; }
+.settings__check {
+  flex-direction: row !important;
+  align-items: center;
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 0.95rem;
+  color: var(--foam);
+}
+.settings__check input { width: auto; }
+.btn {
+  font-family: var(--sans);
+  font-weight: 600;
+  font-size: 0.95rem;
+  color: var(--bg);
+  background: var(--brass);
+  border: 0;
+  padding: 0.55rem 1rem;
+  cursor: pointer;
+}
+.btn--rx { background: var(--rx); }
+.hint { color: var(--muted); font-size: 0.9rem; line-height: 1.45; }
+#settings-msg.err { color: var(--err); }
 
 @media (max-width: 900px) {
   .qrg-bar { grid-template-columns: 1fr 1fr; }

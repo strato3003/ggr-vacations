@@ -64,6 +64,122 @@ def _host_port(url: str) -> tuple[str, int, bool] | None:
     return parsed.hostname, port, https
 
 
+def kiwi_key(kiwi: dict[str, Any]) -> str:
+    return str(kiwi.get("id") or kiwi.get("url") or kiwi.get("name") or "")
+
+
+def pick_nearest(
+    kiwis: list[dict[str, Any]],
+    lat: float,
+    lon: float,
+    *,
+    exclude: set[str] | None = None,
+    min_free: int = 1,
+    min_snr: float = 5.0,
+    radius_km: float | None = None,
+) -> dict[str, Any] | None:
+    """Kiwi le plus proche d’un point (SNR comme départage, rayon optionnel)."""
+    skip = exclude or set()
+    scored: list[tuple[float, float, dict[str, Any]]] = []
+    for kiwi in kiwis:
+        if kiwi_key(kiwi) in skip:
+            continue
+        if int(kiwi.get("free_slots") or 0) < int(min_free):
+            continue
+        dist = haversine_km(lat, lon, float(kiwi["lat"]), float(kiwi["lon"]))
+        if radius_km is not None and dist > float(radius_km):
+            continue
+        scored.append((dist, -float(kiwi.get("snr_hf") or 0.0), kiwi))
+    if not scored:
+        return None
+    with_snr = [row for row in scored if -row[1] >= float(min_snr)]
+    pool = with_snr or scored
+    pool.sort(key=lambda row: (row[0], row[1]))
+    return pool[0][2]
+
+
+def listen_sites(cfg: dict[str, Any], fleet_lat: float, fleet_lon: float) -> list[dict[str, Any]]:
+    """Sites d’écoute ACK : près de la flotte, France (F6KUF), Tahiti (relais océan Indien)."""
+    raw = ((cfg.get("sdr") or {}).get("sites") or {})
+    france = raw.get("france") or {}
+    tahiti = raw.get("tahiti") or {}
+    return [
+        {
+            "id": "fleet",
+            "label": "flotte",
+            "lat": float(fleet_lat),
+            "lon": float(fleet_lon),
+            "radius_km": None,
+        },
+        {
+            "id": "france",
+            "label": france.get("label") or "France",
+            "lat": float(france.get("lat") if france.get("lat") is not None else 46.5025),
+            "lon": float(france.get("lon") if france.get("lon") is not None else -1.7888),
+            "radius_km": float(france.get("radius_km") or 1500),
+        },
+        {
+            "id": "tahiti",
+            "label": tahiti.get("label") or "Tahiti",
+            "lat": float(tahiti.get("lat") if tahiti.get("lat") is not None else -17.5350),
+            "lon": float(tahiti.get("lon") if tahiti.get("lon") is not None else -149.5697),
+            "radius_km": float(tahiti.get("radius_km") or 2500),
+        },
+    ]
+
+
+def assign_vacation_kiwis(
+    pool: list[dict[str, Any]],
+    *,
+    fleet_lat: float,
+    fleet_lon: float,
+    cfg: dict[str, Any],
+) -> dict[str, dict[str, Any]]:
+    """TX = plus proche de la flotte ; ACK = flotte + France + Tahiti, Kiwi distincts."""
+    sdr = cfg.get("sdr") or {}
+    tx_slots = int(sdr.get("min_free_slots") or 2)
+    out: dict[str, dict[str, Any]] = {}
+    used: set[str] = set()
+
+    tx = pick_nearest(pool, fleet_lat, fleet_lon, min_free=tx_slots, min_snr=5.0)
+    if tx is None:
+        tx = pick_nearest(pool, fleet_lat, fleet_lon, min_free=1, min_snr=0.0)
+    if tx is None:
+        return out
+    chosen_tx = dict(tx)
+    chosen_tx["site"] = "tx"
+    chosen_tx["site_label"] = "flotte (bulletin)"
+    chosen_tx["site_km"] = round(haversine_km(fleet_lat, fleet_lon, float(tx["lat"]), float(tx["lon"])), 1)
+    out["tx"] = chosen_tx
+    used.add(kiwi_key(tx))
+    log.info("Kiwi TX bulletin → %s (%.0f km de la flotte)", chosen_tx.get("name"), chosen_tx["site_km"])
+
+    for site in listen_sites(cfg, fleet_lat, fleet_lon):
+        kiwi = pick_nearest(
+            pool,
+            float(site["lat"]),
+            float(site["lon"]),
+            exclude=used,
+            min_free=1,
+            min_snr=5.0,
+            radius_km=site.get("radius_km"),
+        )
+        if kiwi is None:
+            log.info("Aucun Kiwi distinct pour l’ACK %s", site["label"])
+            continue
+        chosen = dict(kiwi)
+        chosen["site"] = site["id"]
+        chosen["site_label"] = site["label"]
+        chosen["site_km"] = round(
+            haversine_km(float(site["lat"]), float(site["lon"]), float(kiwi["lat"]), float(kiwi["lon"])),
+            1,
+        )
+        out[str(site["id"])] = chosen
+        used.add(kiwi_key(kiwi))
+        log.info("Kiwi ACK %s → %s (%.0f km du site)", site["label"], chosen.get("name"), chosen["site_km"])
+    return out
+
+
 def score_kiwi(
     kiwi: dict[str, Any],
     fleet_lat: float,
@@ -77,7 +193,14 @@ def score_kiwi(
     return 0.45 * near + 0.40 * snr + 0.15 * free
 
 
-def normalize_receiver(row: dict[str, Any], fleet_lat: float, fleet_lon: float, cfg: dict[str, Any]) -> dict[str, Any] | None:
+def normalize_receiver(
+    row: dict[str, Any],
+    fleet_lat: float,
+    fleet_lon: float,
+    cfg: dict[str, Any],
+    *,
+    min_free: int | None = None,
+) -> dict[str, Any] | None:
     if str(row.get("offline") or "").lower() not in ("no", "0", ""):
         return None
     if str(row.get("status") or "active").lower() not in ("active", ""):
@@ -102,8 +225,8 @@ def normalize_receiver(row: dict[str, Any], fleet_lat: float, fleet_lon: float, 
     except (TypeError, ValueError):
         return None
     free = max(0, users_max - users)
-    min_free = int(sdr_cfg.get("min_free_slots") or 1)
-    if free < min_free:
+    min_free_slots = int(min_free if min_free is not None else sdr_cfg.get("min_free_slots") or 1)
+    if free < min_free_slots:
         return None
     if str(row.get("ant_connected") or "1") in ("0", "no", "false"):
         return None
@@ -137,6 +260,7 @@ async def fetch_ranked_kiwis(
     fleet_lon: float,
     client: Any | None = None,
     limit: int = 12,
+    min_free: int | None = None,
 ) -> list[dict[str, Any]]:
     import httpx
 
@@ -153,12 +277,14 @@ async def fetch_ranked_kiwis(
             await client.aclose()
     ranked: list[dict[str, Any]] = []
     for row in rows:
-        kiwi = normalize_receiver(row, fleet_lat, fleet_lon, cfg)
+        kiwi = normalize_receiver(row, fleet_lat, fleet_lon, cfg, min_free=min_free)
         if kiwi:
             ranked.append(kiwi)
     ranked.sort(key=lambda k: k["score"], reverse=True)
     log.info("KiwiSDR : %s récepteurs classés (flotte %.3f, %.3f)", len(ranked), fleet_lat, fleet_lon)
-    return ranked[:limit]
+    if limit and limit > 0:
+        return ranked[:limit]
+    return ranked
 
 
 def kiwi_tune_url(kiwi: dict[str, Any], freq_khz: float, mode: str = "usb", zoom: int = 10) -> str:

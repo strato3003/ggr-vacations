@@ -5,17 +5,21 @@
   <h1>À propos — {{ app_name }} {{ version }}</h1>
   <p>
     <strong>GGR Vacations</strong> archive les vacations HF entre le radio-club
-    <strong>F6KUF</strong> et les bateaux de la flotte Golden Globe Race.
-    Le club émet un bulletin météo tous les jours à <strong>18:00 TU</strong> sur
-    <strong>14.135 MHz USB</strong> (QRG nominale ± 2 à 3 kHz) et écoute les
-    accusés de réception sur <strong>16.5515 MHz USB</strong> et
-    <strong>12.4185 MHz USB</strong>.
+    <strong>{{ club_callsign }}</strong> et les bateaux de la flotte Golden Globe Race.
+    Le club émet un bulletin météo tous les jours à <strong>{{ time_utc }} TU</strong> sur
+    <strong>{{ tx_mhz }} MHz USB</strong> (QRG nominale ± {{ qrg_tolerance_khz }} kHz) et écoute les
+    accusés de réception sur <strong>{{ ack1_mhz }} MHz USB</strong> et
+    <strong>{{ ack2_mhz }} MHz USB</strong>.
+    Le bulletin et les deux ACK sont enregistrés en parallèle pendant toute la vacation
+    (pas d’attente de fin de bulletin). Les QRG se règlent dans
+    <a href="/reglages">Réglages</a>.
   </p>
   <h2>Fonctionnement</h2>
   <ul>
     <li>Position moyenne de la flotte via le tracker Yellowbrick GGR 2026.</li>
     <li>Choix des KiwiSDR (distance, SNR HF, places libres, couverture 12–17 MHz).</li>
     <li>Screencast de l’interface SDR (waterfall / VFO) muxé avec l’audio USB 12 kHz.</li>
+    <li>WAV des deux QRG d’accusé en parallèle, depuis trois Kiwi : près de la flotte, en France, vers Tahiti.</li>
     <li>Replay dans cette interface, comme si l’on était devant le récepteur.</li>
   </ul>
   <h2>Crédits</h2>

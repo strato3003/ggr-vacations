@@ -29,6 +29,15 @@ def span_khz(zoom: int, max_freq_khz: float = MAX_FREQ_KHZ) -> float:
     return max_freq_khz / (2 ** int(zoom))
 
 
+def zoom_for_span(need_khz: float, max_freq_khz: float = MAX_FREQ_KHZ) -> int:
+    """Plus grand zoom dont la largeur WF couvre encore need_khz."""
+    need = max(float(need_khz), 1.0)
+    for zoom in range(14, -1, -1):
+        if span_khz(zoom, max_freq_khz) >= need:
+            return zoom
+    return 0
+
+
 def bin_freq_khz(
     index: int,
     zoom: int,
@@ -58,7 +67,9 @@ def usb_dial_from_spectrum(
     pass_khz = (high_hz - low_hz) / 1000.0
     offset_khz = low_hz / 1000.0
     freqs = [bin_freq_khz(i, zoom, cf_khz, max_freq_khz=max_freq_khz) for i in range(WF_BINS)]
-    mask = [lo_khz + 2.0 <= f <= hi_khz - 2.0 for f in freqs]
+    span_win = max(hi_khz - lo_khz, 0.5)
+    pad = min(2.0, max(0.2, span_win * 0.08))
+    mask = [lo_khz + pad <= f <= hi_khz - pad for f in freqs]
     band = [bins[i] for i, ok in enumerate(mask) if ok]
     if len(band) < 16:
         return None
@@ -136,9 +147,15 @@ async def hunt_usb_signal(
     timeout_s: float = 12.0,
     low_hz: int = 300,
     high_hz: int = 2700,
+    cf_khz: float | None = None,
+    zoom: int | None = None,
 ) -> dict[str, Any] | None:
     """Ouvre le WF, moyenne quelques lignes, renvoie l’accord USB ou None."""
     origin = kiwi.get("url") or f"http://{kiwi['host']}:{kiwi['port']}"
+    if cf_khz is None:
+        cf_khz = (float(lo_khz) + float(hi_khz)) / 2.0
+    if zoom is None:
+        zoom = zoom_for_span((float(hi_khz) - float(lo_khz)) * 1.25)
     last_err = None
     for uri in _ws_uris(kiwi, "WF"):
         try:
@@ -152,6 +169,8 @@ async def hunt_usb_signal(
                 timeout_s=timeout_s,
                 low_hz=low_hz,
                 high_hz=high_hz,
+                cf_khz=cf_khz,
+                zoom=zoom,
             )
             if found:
                 return found
@@ -175,6 +194,8 @@ async def _hunt_on_uri(
     timeout_s: float,
     low_hz: int = 300,
     high_hz: int = 2700,
+    cf_khz: float = HUNT_CF_KHZ,
+    zoom: int = HUNT_ZOOM,
 ) -> dict[str, Any] | None:
     deadline = time.monotonic() + timeout_s
     lines: list[list[int]] = []
@@ -191,7 +212,7 @@ async def _hunt_on_uri(
         compression=None,
         ping_interval=None,
         origin=origin,
-        user_agent_header="ggr-vacations/0.1.8",
+        user_agent_header="ggr-vacations/0.1.9",
     ) as ws:
         await ws.send("SET auth t=kiwi p=")
         last_keep = 0.0
@@ -229,13 +250,13 @@ async def _hunt_on_uri(
                 ):
                     await ws.send(f"SET ident_user={quote(ident, safe='')}")
                     await ws.send("SET geo=ggr-vacations")
-                    await ws.send(f"SET zoom={HUNT_ZOOM} cf={HUNT_CF_KHZ:.3f}")
+                    await ws.send(f"SET zoom={int(zoom)} cf={cf_khz:.3f}")
                     await ws.send("SET maxdb=-10 mindb=-110")
                     await ws.send("SET wf_comp=0")
                     await ws.send("SET wf_speed=4")
                     await ws.send("SET interp=13")
                     setup_done = True
-                    log.info("WF prêt %s zoom %s cf %.2f", kiwi.get("name"), HUNT_ZOOM, HUNT_CF_KHZ)
+                    log.info("WF prêt %s zoom %s cf %.2f", kiwi.get("name"), zoom, cf_khz)
                 continue
 
             if not isinstance(message, bytes) or message[:3] != b"W/F":
@@ -253,8 +274,8 @@ async def _hunt_on_uri(
     avg = [v / len(lines) for v in acc]
     hit = usb_dial_from_spectrum(
         avg,
-        zoom=HUNT_ZOOM,
-        cf_khz=HUNT_CF_KHZ,
+        zoom=zoom,
+        cf_khz=cf_khz,
         lo_khz=lo_khz,
         hi_khz=hi_khz,
         max_freq_khz=max_freq,

@@ -54,6 +54,12 @@ def test_next_vacation_before_slot():
     assert nxt.date() == now.date()
 
 
+def test_scheduler_cron_is_1759_with_one_minute_lead():
+    from recorder.scheduler import _lead
+
+    assert _lead({"schedule": {"time_utc": "18:00", "lead_minutes": 1}}) == (17, 59)
+
+
 def test_heading_from_two_fixes():
     moments = [
         {"lat": 46.50, "lon": -1.80, "at": 1},
@@ -307,3 +313,156 @@ def test_wf_uri_uses_ws_kiwi_path():
     uris = _ws_uris({"host": "g3sdr.com", "port": 8074, "https": False}, "WF")
     assert uris[0].startswith("ws://g3sdr.com:8074/ws/kiwi/")
     assert uris[0].endswith("/WF")
+
+
+def test_fmt_mhz_keeps_hertz():
+    from recorder.config import fmt_mhz
+
+    assert fmt_mhz(14135.0) == "14.135"
+    assert fmt_mhz(16551.5) == "16.5515"
+    assert fmt_mhz(12418.5) == "12.4185"
+
+
+def test_parse_qrg_khz_accepts_mhz_or_khz():
+    from recorder.config import parse_qrg_khz
+
+    assert parse_qrg_khz(14.135) == 14135.0
+    assert parse_qrg_khz(14135) == 14135.0
+    assert parse_qrg_khz("16.5515") == 16551.5
+    assert parse_qrg_khz(16551.5) == 16551.5
+    assert parse_qrg_khz(12.4185) == 12418.5
+
+
+def test_zoom_for_span_covers_five_khz_window():
+    from recorder.kiwi_wf import span_khz, zoom_for_span
+
+    z = zoom_for_span(12.5)
+    assert z == 11
+    assert span_khz(z) >= 12.5
+    assert span_khz(z + 1) < 12.5
+
+
+def test_assign_vacation_kiwis_geo_sites():
+    from recorder.kiwi_list import assign_vacation_kiwis
+
+    def kiwi(kid, name, lat, lon, snr=20.0, free=3):
+        return {
+            "id": kid,
+            "name": name,
+            "lat": lat,
+            "lon": lon,
+            "snr_hf": snr,
+            "free_slots": free,
+            "url": f"http://{kid}.invalid",
+        }
+
+    fleet_lat, fleet_lon = -30.0, 10.0
+    pool = [
+        kiwi("loud-far", "singapore", 1.35, 103.82, snr=40, free=8),
+        kiwi("near-a", "walvis", -29.5, 14.5, snr=12, free=3),
+        kiwi("near-b", "cape", -33.92, 18.42, snr=18, free=2),
+        kiwi("fr", "les-sables", 46.5025, -1.7888, snr=22, free=4),
+        kiwi("th", "papeete", -17.5350, -149.5697, snr=16, free=2),
+        kiwi("nz", "auckland", -36.85, 174.76, snr=30, free=4),
+    ]
+    cfg = {
+        "sdr": {
+            "min_free_slots": 2,
+            "sites": {
+                "france": {"lat": 46.5025, "lon": -1.7888, "label": "France", "radius_km": 1500},
+                "tahiti": {"lat": -17.5350, "lon": -149.5697, "label": "Tahiti", "radius_km": 2500},
+            },
+        }
+    }
+    roles = assign_vacation_kiwis(pool, fleet_lat=fleet_lat, fleet_lon=fleet_lon, cfg=cfg)
+    assert roles["tx"]["id"] == "near-a"
+    assert roles["fleet"]["id"] == "near-b"
+    assert roles["france"]["id"] == "fr"
+    assert roles["tahiti"]["id"] == "th"
+    assert "loud-far" not in {r["id"] for r in roles.values()}
+    assert "nz" not in {r["id"] for r in roles.values()}
+
+
+def test_ack_channels_per_site():
+    from recorder.session import _channels, _pick_kiwis
+
+    cfg = {
+        "radio": {
+            "tx": {"freq_khz": 14135.0, "label": "Bulletin météo F6KUF"},
+            "ack": [
+                {"freq_khz": 16551.5, "label": "Accusé 16,5515 MHz"},
+                {"freq_khz": 12418.5, "label": "Accusé 12,4185 MHz"},
+            ],
+        },
+        "sdr": {"screencast_tx": True, "screencast_ack": False},
+    }
+    sites = [
+        {"id": "fleet", "label": "flotte"},
+        {"id": "france", "label": "France"},
+        {"id": "tahiti", "label": "Tahiti"},
+    ]
+    channels = _channels(cfg, sites)
+    assert [c["id"] for c in channels] == [
+        "tx",
+        "ack1-fleet",
+        "ack1-france",
+        "ack1-tahiti",
+        "ack2-fleet",
+        "ack2-france",
+        "ack2-tahiti",
+    ]
+    roles = {
+        "tx": {"name": "k-tx"},
+        "fleet": {"name": "k-fleet"},
+        "france": {"name": "k-fr"},
+        "tahiti": {"name": "k-th"},
+    }
+    got = _pick_kiwis(roles, channels)
+    assert got["tx"]["name"] == "k-tx"
+    assert got["ack1-france"]["name"] == "k-fr"
+    assert got["ack2-tahiti"]["name"] == "k-th"
+
+
+def test_runtime_settings_override_qrg(tmp_path, monkeypatch):
+    monkeypatch.setenv("GGR_DATA_DIR", str(tmp_path))
+    from recorder.config import load_config, qrg_context, save_runtime_settings
+
+    save_runtime_settings(
+        {
+            "radio": {"tx": {"freq_khz": 14137.25, "qrg_tolerance_khz": 5.0}},
+            "schedule": {"lead_minutes": 1, "duration_minutes": 12},
+        }
+    )
+    qrg = qrg_context(load_config())
+    assert qrg["tx_khz"] == 14137.25
+    assert qrg["qrg_tolerance_khz"] == 5.0
+    assert qrg["schedule_lead"] == 1
+    assert qrg["duration_minutes"] == 12
+    assert qrg["ack1_khz"] == 16551.5
+    assert (tmp_path / "settings.json").is_file()
+
+
+def test_usb_dial_in_plus_minus_five_khz_window():
+    from recorder.kiwi_wf import WF_BINS, bin_freq_khz, usb_dial_from_spectrum, zoom_for_span
+
+    cf = 14135.0
+    tol = 5.0
+    high_hz = 2700
+    zoom = zoom_for_span((2 * tol + high_hz / 1000.0) * 1.25)
+    bins = [40.0] * WF_BINS
+    # Voix USB 300–2700 Hz au-dessus de 14 138,0 kHz (QRM +3 kHz).
+    i0 = min(range(WF_BINS), key=lambda i: abs(bin_freq_khz(i, zoom, cf) - 14138.3))
+    i1 = min(range(WF_BINS), key=lambda i: abs(bin_freq_khz(i, zoom, cf) - 14140.7))
+    for i in range(min(i0, i1), max(i0, i1) + 1):
+        bins[i] = 180.0
+    hit = usb_dial_from_spectrum(
+        bins,
+        zoom=zoom,
+        cf_khz=cf,
+        lo_khz=cf - tol,
+        hi_khz=cf + tol + high_hz / 1000.0,
+        low_hz=300,
+        high_hz=high_hz,
+    )
+    assert hit is not None
+    assert abs(hit["freq_khz"] - 14138.0) < 0.25

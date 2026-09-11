@@ -16,7 +16,7 @@ log = logging.getLogger(__name__)
 def _lead(cfg: dict) -> tuple[int, int]:
     sched = cfg.get("schedule") or {}
     hh, mm = (sched.get("time_utc") or "18:00").split(":")
-    lead = int(sched.get("lead_minutes") or 10)
+    lead = int(sched.get("lead_minutes") or 1)
     total = int(hh) * 60 + int(mm) - lead
     if total < 0:
         total += 24 * 60
@@ -30,7 +30,7 @@ def build_scheduler(cfg: dict | None = None) -> AsyncIOScheduler:
     scheduler.add_job(
         run_vacation,
         CronTrigger(hour=hour, minute=minute, timezone="UTC"),
-        kwargs={"cfg": cfg, "reason": "schedule"},
+        kwargs={"reason": "schedule"},
         id="ggr-vacation",
         replace_existing=True,
         max_instances=1,
@@ -39,9 +39,18 @@ def build_scheduler(cfg: dict | None = None) -> AsyncIOScheduler:
     scheduler.add_job(
         purge_old,
         CronTrigger(hour=4, minute=10, timezone="UTC"),
-        kwargs={"cfg": cfg},
         id="ggr-purge",
         replace_existing=True,
     )
     log.info("Planification : enregistrement quotidien %02d:%02d TU", hour, minute)
     return scheduler
+
+
+def apply_vacation_schedule(scheduler: AsyncIOScheduler, cfg: dict) -> None:
+    """Recale le cron après un changement d’heure / d’avance dans Réglages."""
+    hour, minute = _lead(cfg)
+    scheduler.reschedule_job(
+        "ggr-vacation",
+        trigger=CronTrigger(hour=hour, minute=minute, timezone="UTC"),
+    )
+    log.info("Planification mise à jour : %02d:%02d TU", hour, minute)

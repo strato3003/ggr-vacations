@@ -4,10 +4,12 @@
 <section class="intro">
   <h1>Archives des vacations radio</h1>
   <p>
-    Chaque jour à <strong>18:00 TU</strong>, le radio-club <strong>{{ club_callsign }}</strong>
+    Chaque jour à <strong>{{ time_utc }} TU</strong>, le radio-club <strong>{{ club_callsign }}</strong>
     émet le bulletin météo à destination des skippers du Golden Globe Race.
-    L’application choisit les KiwiSDR les plus proches de la position moyenne de la flotte,
-    capture le waterfall en screencast et enregistre l’audio USB pour le rejouer ensuite.
+    L’application capture le waterfall (Kiwi le plus proche de la flotte)
+    et enregistre en parallèle l’audio USB du bulletin et des deux QRG d’accusé
+    depuis la flotte, la France et Tahiti.
+    <a href="/reglages#record-test">Record test</a> sur n’importe quelle QRG.
   </p>
 </section>
 
@@ -35,6 +37,6 @@
   {% endfor %}
 </ul>
 {% else %}
-<p class="empty">Aucune vacation enregistrée pour le moment. Le premier passage est planifié à 18:00 TU (démarrage {{ schedule_lead }} min avant).</p>
+<p class="empty">Aucune vacation enregistrée pour le moment. Le premier passage est planifié à {{ time_utc }} TU (démarrage {{ schedule_lead }} min avant).</p>
 {% endif %}
 {% endblock %}

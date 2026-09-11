@@ -11,14 +11,14 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-from recorder.config import data_dir, load_config, version
+from recorder.config import data_dir, fmt_mhz, load_config, version
 from recorder.fleet import fetch_fleet
 from recorder.geo import fmt_latlon
 from recorder.kiwi_audio import record_kiwi_wav
-from recorder.kiwi_list import fetch_ranked_kiwis
+from recorder.kiwi_list import assign_vacation_kiwis, fetch_ranked_kiwis, pick_nearest
 from recorder.postprocess import mux_screencast, thumbnail
 from recorder.screencast import record_screencast
-from recorder.kiwi_wf import HUNT_HI_KHZ, HUNT_LO_KHZ, hunt_usb_signal
+from recorder.kiwi_wf import HUNT_CF_KHZ, HUNT_HI_KHZ, HUNT_LO_KHZ, HUNT_ZOOM, hunt_usb_signal
 
 log = logging.getLogger(__name__)
 LOCK_NAME = ".recording.lock"
@@ -31,51 +31,78 @@ def vacation_id(when: datetime | None = None) -> str:
     return when.strftime("%Y-%m-%dT%H%MZ")
 
 
-def _channels(cfg: dict[str, Any]) -> list[dict[str, Any]]:
+def _channels(cfg: dict[str, Any], ack_sites: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
     radio = cfg.get("radio") or {}
     tx = radio.get("tx") or {}
     rows = [
         {
             "id": "tx",
             "kind": "tx",
+            "site": "tx",
+            "site_label": "flotte (bulletin)",
             "freq_khz": float(tx["freq_khz"]),
             "label": tx.get("label") or "Bulletin F6KUF",
             "zoom": int(tx.get("zoom") or 10),
             "screencast": bool((cfg.get("sdr") or {}).get("screencast_tx", True)),
         }
     ]
+    sites = ack_sites or []
     for idx, ack in enumerate(radio.get("ack") or []):
-        rows.append(
-            {
-                "id": f"ack{idx + 1}",
-                "kind": "ack",
-                "freq_khz": float(ack["freq_khz"]),
-                "label": ack.get("label") or f"Accusé {ack['freq_khz']} kHz",
-                "zoom": int(ack.get("zoom") or 10),
-                "screencast": bool((cfg.get("sdr") or {}).get("screencast_ack", False)),
-            }
-        )
+        base_label = ack.get("label") or f"Accusé {ack['freq_khz']} kHz"
+        if not sites:
+            rows.append(
+                {
+                    "id": f"ack{idx + 1}",
+                    "kind": "ack",
+                    "site": "fleet",
+                    "site_label": "flotte",
+                    "freq_khz": float(ack["freq_khz"]),
+                    "label": base_label,
+                    "zoom": int(ack.get("zoom") or 10),
+                    "screencast": bool((cfg.get("sdr") or {}).get("screencast_ack", False)),
+                }
+            )
+            continue
+        for site in sites:
+            sid = str(site["id"])
+            slabel = site.get("label") or sid
+            rows.append(
+                {
+                    "id": f"ack{idx + 1}-{sid}",
+                    "kind": "ack",
+                    "site": sid,
+                    "site_label": slabel,
+                    "freq_khz": float(ack["freq_khz"]),
+                    "label": f"{base_label} · {slabel}",
+                    "zoom": int(ack.get("zoom") or 10),
+                    "screencast": bool((cfg.get("sdr") or {}).get("screencast_ack", False)),
+                }
+            )
     return rows
 
 
-def _pick_kiwis(ranked: list[dict[str, Any]], channels: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
-    """Répartit les canaux : TX sur le meilleur, ACK sur le suivant si possible."""
+def _pick_kiwis(
+    roles: dict[str, dict[str, Any]],
+    channels: list[dict[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    """Associe chaque canal au Kiwi du rôle (tx / fleet / france / tahiti)."""
     assignment: dict[str, dict[str, Any]] = {}
-    if not ranked:
-        return assignment
-    assignment["tx"] = ranked[0]
-    alt = ranked[1] if len(ranked) > 1 else ranked[0]
+    tx = roles.get("tx")
     for ch in channels:
         if ch["id"] == "tx":
+            if tx:
+                assignment["tx"] = tx
             continue
-        assignment[ch["id"]] = alt
+        kiwi = roles.get(str(ch.get("site") or ""))
+        if kiwi:
+            assignment[ch["id"]] = kiwi
     return assignment
 
 
 def next_vacation_utc(cfg: dict[str, Any], now: datetime | None = None) -> datetime:
     sched = cfg.get("schedule") or {}
     hh, mm = (sched.get("time_utc") or "18:00").split(":")
-    lead = int(sched.get("lead_minutes") or 10)
+    lead = int(sched.get("lead_minutes") or 1)
     now = now or datetime.now(timezone.utc)
     start = now.replace(hour=int(hh), minute=int(mm), second=0, microsecond=0) - timedelta(minutes=lead)
     if start <= now:
@@ -83,7 +110,203 @@ def next_vacation_utc(cfg: dict[str, Any], now: datetime | None = None) -> datet
     return start
 
 
-async def run_vacation(cfg: dict[str, Any] | None = None, *, reason: str = "schedule") -> dict[str, Any]:
+async def _hunt_usb_around(
+    cfg: dict[str, Any],
+    kiwi: dict[str, Any],
+    nominal_khz: float,
+    tol_khz: float,
+) -> dict[str, Any] | None:
+    """Blob USB dans ±tolérance autour de nominal (filtre USB au-dessus du VFO)."""
+    radio = cfg.get("radio") or {}
+    filt = radio.get("usb_filter") or {}
+    ident = (cfg.get("sdr") or {}).get("ident_user") or "ggr-vacations"
+    low_hz = int(filt.get("low_hz") or 300)
+    high_hz = int(filt.get("high_hz") or 2700)
+    return await hunt_usb_signal(
+        kiwi,
+        lo_khz=nominal_khz - tol_khz,
+        hi_khz=nominal_khz + tol_khz + (high_hz / 1000.0),
+        ident=ident,
+        low_hz=low_hz,
+        high_hz=high_hz,
+        cf_khz=nominal_khz,
+    )
+
+
+async def _follow_tx_qrg(
+    cfg: dict[str, Any],
+    kiwi: dict[str, Any],
+    channels: list[dict[str, Any]],
+) -> None:
+    """Si un blob USB est dans ±tolérance, recale le VFO TX (sinon QRG nominale)."""
+    radio = cfg.get("radio") or {}
+    tx = radio.get("tx") or {}
+    nominal = float(tx.get("freq_khz") or 14135.0)
+    tol = float(tx.get("qrg_tolerance_khz") or 5.0)
+    hit = await _hunt_usb_around(cfg, kiwi, nominal, tol)
+    for ch in channels:
+        if ch["id"] != "tx":
+            continue
+        ch["freq_nominal_khz"] = nominal
+        ch["qrg_tolerance_khz"] = tol
+        if not hit:
+            log.info(
+                "Pas de blob USB autour de %.4f kHz (±%s kHz) — accord nominal",
+                nominal,
+                tol,
+            )
+            return
+        found = float(hit["freq_khz"])
+        ch["freq_khz"] = found
+        ch["hunt"] = {k: hit[k] for k in hit if k != "kiwi"}
+        log.info("Suivi QRG TX : %.4f → %.4f kHz", nominal, found)
+        return
+
+
+async def run_manual_qrg(
+    cfg: dict[str, Any] | None = None,
+    *,
+    freq_khz: float,
+    duration_minutes: int = 2,
+    hunt: bool = True,
+    qrg_tolerance_khz: float | None = None,
+) -> dict[str, Any]:
+    """Screencast + audio USB sur une QRG libre (test immédiat, Kiwi le plus proche de la flotte)."""
+    cfg = cfg or load_config()
+    root = data_dir(cfg)
+    lock = root / LOCK_NAME
+    if lock.exists():
+        raise RuntimeError("Un enregistrement est déjà en cours")
+    lock.write_text(datetime.now(timezone.utc).isoformat(), encoding="utf-8")
+    started = datetime.now(timezone.utc)
+    vid = started.strftime("%Y-%m-%dT%H%MZ") + "-qrg"
+    session_dir = root / "vacations" / vid
+    session_dir.mkdir(parents=True, exist_ok=True)
+    radio = cfg.get("radio") or {}
+    tx = radio.get("tx") or {}
+    tol = float(qrg_tolerance_khz if qrg_tolerance_khz is not None else tx.get("qrg_tolerance_khz") or 5.0)
+    minutes = max(1, int(duration_minutes))
+    duration = minutes * 60
+    mhz = fmt_mhz(freq_khz)
+    viewport = (cfg.get("sdr") or {}).get("viewport") or {"width": 1280, "height": 800}
+    meta: dict[str, Any] = {
+        "id": vid,
+        "status": "running",
+        "reason": "manual-qrg",
+        "title": f"Record {mhz} MHz USB",
+        "version": version(cfg),
+        "club": cfg.get("club"),
+        "started_at": started.isoformat(),
+        "duration_minutes": minutes,
+        "freq_nominal_khz": freq_khz,
+        "qrg_tolerance_khz": tol,
+        "hunt": hunt,
+        "channels": [],
+    }
+    _write_meta(session_dir, meta)
+    try:
+        fleet = await fetch_fleet(cfg)
+        meta["fleet"] = fleet
+        ranked = await fetch_ranked_kiwis(cfg, fleet["lat"], fleet["lon"], limit=0, min_free=1)
+        meta["kiwis_ranked"] = ranked[:8]
+        tx_slots = int((cfg.get("sdr") or {}).get("min_free_slots") or 2)
+        kiwi = pick_nearest(
+            ranked,
+            float(fleet["lat"]),
+            float(fleet["lon"]),
+            min_free=tx_slots,
+            min_snr=5.0,
+        )
+        if kiwi is None:
+            kiwi = pick_nearest(ranked, float(fleet["lat"]), float(fleet["lon"]), min_free=1, min_snr=0.0)
+        if kiwi is None:
+            raise RuntimeError("Aucun KiwiSDR disponible pour ce record")
+        tuned = float(freq_khz)
+        hunt_info = None
+        if hunt:
+            try:
+                hit = await _hunt_usb_around(cfg, kiwi, tuned, tol)
+            except Exception:
+                log.exception("Chasse QRG %.4f kHz impossible", tuned)
+                hit = None
+            if hit:
+                tuned = float(hit["freq_khz"])
+                hunt_info = {k: hit[k] for k in hit if k != "kiwi"}
+                log.info("Record manuel : %.4f → %.4f kHz", freq_khz, tuned)
+            else:
+                log.info("Record manuel : pas de blob USB autour de %.4f kHz (±%s) — QRG demandée", freq_khz, tol)
+        wav = session_dir / "audio-tx.wav"
+        webm = session_dir / "screencast-tx.webm"
+        overlay = {
+            "when": started.strftime("%Y-%m-%d %H:%M"),
+            "channel": f"Record {mhz} MHz",
+            "freq": f"{tuned:.4f} kHz USB",
+            "kiwi": kiwi.get("name"),
+        }
+        raw = await record_screencast(
+            kiwi,
+            tuned,
+            webm,
+            duration,
+            mode=str(radio.get("mode") or "usb"),
+            zoom=int(tx.get("zoom") or 10),
+            viewport=viewport,
+            overlay=overlay,
+            snd_wav=wav,
+        )
+        ch_out = {
+            "id": "tx",
+            "kind": "manual",
+            "freq_khz": tuned,
+            "freq_nominal_khz": freq_khz,
+            "qrg_tolerance_khz": tol,
+            "label": f"Record {fmt_mhz(tuned)} MHz USB",
+            "zoom": int(tx.get("zoom") or 10),
+            "screencast": True,
+            "screencast_raw": "screencast-tx.webm",
+            "audio_file": "audio-tx.wav",
+            "hunt": hunt_info,
+            "kiwi": {
+                "name": kiwi.get("name"),
+                "url": kiwi.get("url"),
+                "distance_km": kiwi.get("distance_km"),
+                "fmt": kiwi.get("fmt"),
+                "snr_hf": kiwi.get("snr_hf"),
+                "site_km": kiwi.get("distance_km"),
+            },
+        }
+        if isinstance(raw, dict) and isinstance(raw.get("audio_delay_s"), (int, float)):
+            ch_out["audio_delay_s"] = round(float(raw["audio_delay_s"]), 3)
+        meta["channels"].append(ch_out)
+        meta["raw_results"] = [raw if not isinstance(raw, Exception) else repr(raw)]
+        if isinstance(raw, Exception):
+            raise raw
+        meta["status"] = "complete"
+        meta["ended_at"] = datetime.now(timezone.utc).isoformat()
+        meta["fleet_fmt"] = fleet.get("fmt") or fmt_latlon(fleet["lat"], fleet["lon"])
+        log.info("Record QRG %s terminé", vid)
+        return meta
+    except Exception as exc:
+        meta["status"] = "error"
+        meta["error"] = str(exc)
+        meta["ended_at"] = datetime.now(timezone.utc).isoformat()
+        log.exception("Record QRG %s en échec", vid)
+        return meta
+    finally:
+        _finalize_media(session_dir, meta)
+        _write_meta(session_dir, meta)
+        try:
+            lock.unlink()
+        except OSError:
+            pass
+
+
+async def run_vacation(
+    cfg: dict[str, Any] | None = None,
+    *,
+    reason: str = "schedule",
+    duration_minutes: int | None = None,
+) -> dict[str, Any]:
     cfg = cfg or load_config()
     root = data_dir(cfg)
     lock = root / LOCK_NAME
@@ -110,14 +333,47 @@ async def run_vacation(cfg: dict[str, Any] | None = None, *, reason: str = "sche
     try:
         fleet = await fetch_fleet(cfg)
         meta["fleet"] = fleet
-        ranked = await fetch_ranked_kiwis(cfg, fleet["lat"], fleet["lon"])
+        ranked = await fetch_ranked_kiwis(cfg, fleet["lat"], fleet["lon"], limit=0, min_free=1)
         meta["kiwis_ranked"] = ranked[:8]
-        channels = _channels(cfg)
-        assignment = _pick_kiwis(ranked, channels)
-        if not assignment:
+        roles = assign_vacation_kiwis(
+            ranked,
+            fleet_lat=float(fleet["lat"]),
+            fleet_lon=float(fleet["lon"]),
+            cfg=cfg,
+        )
+        meta["kiwi_roles"] = {
+            role: {
+                "name": kiwi.get("name"),
+                "url": kiwi.get("url"),
+                "fmt": kiwi.get("fmt"),
+                "site_km": kiwi.get("site_km"),
+                "snr_hf": kiwi.get("snr_hf"),
+            }
+            for role, kiwi in roles.items()
+        }
+        ack_sites = [
+            {"id": sid, "label": roles[sid].get("site_label") or sid}
+            for sid in ("fleet", "france", "tahiti")
+            if sid in roles
+        ]
+        channels = _channels(cfg, ack_sites)
+        assignment = _pick_kiwis(roles, channels)
+        if "tx" not in assignment:
             raise RuntimeError("Aucun KiwiSDR disponible pour la position de la flotte")
 
-        duration = int((cfg.get("schedule") or {}).get("duration_minutes") or 10) * 60
+        tx_kiwi = assignment.get("tx") or ranked[0]
+        try:
+            await _follow_tx_qrg(cfg, tx_kiwi, channels)
+        except Exception:
+            log.exception("Suivi QRG TX impossible — accord nominal")
+
+        minutes = (
+            duration_minutes
+            if duration_minutes is not None
+            else int((cfg.get("schedule") or {}).get("duration_minutes") or 10)
+        )
+        duration = int(minutes) * 60
+        meta["duration_minutes"] = int(minutes)
         radio = cfg.get("radio") or {}
         filt = radio.get("usb_filter") or {}
         ident = (cfg.get("sdr") or {}).get("ident_user") or "ggr-vacations"
@@ -126,7 +382,10 @@ async def run_vacation(cfg: dict[str, Any] | None = None, *, reason: str = "sche
 
         jobs = []
         for ch in channels:
-            kiwi = assignment.get(ch["id"]) or assignment["tx"]
+            kiwi = assignment.get(ch["id"])
+            if not kiwi:
+                log.warning("Canal %s sans Kiwi — ignoré", ch["id"])
+                continue
             ch_out = {
                 **ch,
                 "kiwi": {
@@ -135,6 +394,7 @@ async def run_vacation(cfg: dict[str, Any] | None = None, *, reason: str = "sche
                     "distance_km": kiwi.get("distance_km"),
                     "fmt": kiwi.get("fmt"),
                     "snr_hf": kiwi.get("snr_hf"),
+                    "site_km": kiwi.get("site_km"),
                 },
             }
             wav = session_dir / f"audio-{ch['id']}.wav"
@@ -171,7 +431,7 @@ async def run_vacation(cfg: dict[str, Any] | None = None, *, reason: str = "sche
                         mode=str(radio.get("mode") or "usb"),
                         low_hz=int(filt.get("low_hz") or 300),
                         high_hz=int(filt.get("high_hz") or 2700),
-                        ident=ident,
+                        ident=f"{ident}-{ch.get('site') or ch['id']}" if ch.get("kind") == "ack" else ident,
                     )
                 )
             meta["channels"].append(ch_out)
@@ -386,7 +646,16 @@ async def run_test_hunt(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
         last_err = None
         for kiwi in ranked[:5]:
             try:
-                hit = await hunt_usb_signal(kiwi, ident=ident, low_hz=low_hz, high_hz=high_hz)
+                hit = await hunt_usb_signal(
+                    kiwi,
+                    ident=ident,
+                    low_hz=low_hz,
+                    high_hz=high_hz,
+                    lo_khz=HUNT_LO_KHZ,
+                    hi_khz=HUNT_HI_KHZ,
+                    cf_khz=HUNT_CF_KHZ,
+                    zoom=HUNT_ZOOM,
+                )
             except Exception as exc:
                 last_err = str(exc)
                 log.warning("Chasse %s : %s", kiwi.get("name"), exc)

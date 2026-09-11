@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 from contextlib import asynccontextmanager
@@ -15,11 +16,17 @@ from fastapi.staticfiles import StaticFiles
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 from app import store
-from recorder.config import load_config, version
+from recorder.config import fmt_mhz, load_config, parse_qrg_khz, qrg_context, save_runtime_settings, version
 from recorder.fleet import fetch_fleet
 from recorder.kiwi_list import fetch_ranked_kiwis
-from recorder.scheduler import build_scheduler
-from recorder.session import finalize_pending_sessions, next_vacation_utc, recover_orphaned, run_vacation
+from recorder.scheduler import apply_vacation_schedule, build_scheduler
+from recorder.session import (
+    finalize_pending_sessions,
+    next_vacation_utc,
+    recover_orphaned,
+    run_manual_qrg,
+    run_vacation,
+)
 
 log = logging.getLogger(__name__)
 ROOT = Path(__file__).resolve().parent
@@ -30,15 +37,17 @@ CFG = load_config()
 async def lifespan(_app: FastAPI):
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     log.info("Templates : %s → %s", ROOT / "templates", list((ROOT / "templates").glob("*.html")))
-    recovered = recover_orphaned(CFG)
+    cfg = load_config()
+    recovered = recover_orphaned(cfg)
     if recovered:
         log.warning("Récupération : %s verrou(s) / vacation(s) orphelin(s)", recovered)
-    scheduler = build_scheduler(CFG)
+    scheduler = build_scheduler(cfg)
+    _app.state.scheduler = scheduler
     scheduler.start()
 
     async def _mux_pending() -> None:
         try:
-            n = await asyncio.to_thread(finalize_pending_sessions, CFG)
+            n = await asyncio.to_thread(finalize_pending_sessions, load_config())
             if n:
                 log.info("Finalisation média : %s session(s)", n)
         except Exception:
@@ -76,25 +85,42 @@ def render(request: Request, name: str, **extra) -> HTMLResponse:
 
 
 def _ctx(request: Request, **extra):
-    nxt = next_vacation_utc(CFG)
-    bulletin = _bulletin_utc(CFG)
-    club = CFG.get("club") or {}
-    schedule = CFG.get("schedule") or {}
+    cfg = load_config()
+    nxt = next_vacation_utc(cfg)
+    bulletin = _bulletin_utc(cfg)
+    club = cfg.get("club") or {}
+    schedule = cfg.get("schedule") or {}
+    qrg = qrg_context(cfg)
     return {
-        "app_name": (CFG.get("web") or {}).get("title") or "GGR Vacations",
-        "version": version(CFG),
+        "app_name": (cfg.get("web") or {}).get("title") or "GGR Vacations",
+        "version": version(cfg),
         "club": club,
         "club_callsign": club.get("callsign") or "F6KUF",
-        "radio": CFG.get("radio") or {},
+        "radio": cfg.get("radio") or {},
         "schedule": schedule,
-        "schedule_lead": schedule.get("lead_minutes") or 10,
+        "schedule_lead": qrg["schedule_lead"],
         "next_start": nxt,
         "next_start_iso": nxt.isoformat(),
         "bulletin_iso": bulletin.isoformat(),
         "bulletin_label": bulletin.strftime("%d/%m %H:%M"),
-        "recording": store.recording_in_progress(CFG),
+        "recording": store.recording_in_progress(cfg),
+        "admin_configured": _admin_configured(cfg),
+        **qrg,
         **extra,
     }
+
+
+def _admin_configured(cfg: dict | None = None) -> bool:
+    cfg = cfg or load_config()
+    token = (cfg.get("web") or {}).get("admin_token") or os.environ.get("GGR_ADMIN_TOKEN") or ""
+    return bool(token)
+
+
+def _require_admin(x_admin_token: str | None, cfg: dict | None = None) -> None:
+    cfg = cfg or load_config()
+    expected = (cfg.get("web") or {}).get("admin_token") or os.environ.get("GGR_ADMIN_TOKEN") or ""
+    if not expected or x_admin_token != expected:
+        raise HTTPException(403, "Jeton administrateur invalide")
 
 
 def _bulletin_utc(cfg) -> datetime:
@@ -111,7 +137,8 @@ def _bulletin_utc(cfg) -> datetime:
 
 @app.get("/health")
 async def health():
-    return {"ok": True, "version": version(CFG), "recording": store.recording_in_progress(CFG)}
+    cfg = load_config()
+    return {"ok": True, "version": version(cfg), "recording": store.recording_in_progress(cfg)}
 
 
 @app.get("/ping", response_class=HTMLResponse)
@@ -121,13 +148,13 @@ async def ping():
 
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
-    vacations = store.list_vacations(CFG)
+    vacations = store.list_vacations(load_config())
     return render(request, "index.html", vacations=vacations)
 
 
 @app.get("/vacations/{vacation_id}", response_class=HTMLResponse)
 async def vacation_page(request: Request, vacation_id: str):
-    meta = store.get_vacation(vacation_id, CFG)
+    meta = store.get_vacation(vacation_id, load_config())
     if not meta:
         raise HTTPException(404, "Vacation introuvable")
     return render(request, "vacation.html", vacation=meta)
@@ -135,10 +162,11 @@ async def vacation_page(request: Request, vacation_id: str):
 
 @app.get("/flotte", response_class=HTMLResponse)
 async def flotte_page(request: Request):
+    cfg = load_config()
     try:
-        fleet = await fetch_fleet(CFG)
+        fleet = await fetch_fleet(cfg)
         try:
-            kiwis = await fetch_ranked_kiwis(CFG, fleet["lat"], fleet["lon"], limit=8)
+            kiwis = await fetch_ranked_kiwis(cfg, fleet["lat"], fleet["lon"], limit=8)
         except Exception:
             log.exception("Liste KiwiSDR indisponible")
             kiwis = []
@@ -156,9 +184,14 @@ async def about_page(request: Request):
     return render(request, "about.html")
 
 
+@app.get("/reglages", response_class=HTMLResponse)
+async def reglages_page(request: Request):
+    return render(request, "reglages.html")
+
+
 @app.get("/media/{vacation_id}/{filename}")
 async def media(vacation_id: str, filename: str):
-    path = store.media_path(vacation_id, filename, CFG)
+    path = store.media_path(vacation_id, filename, load_config())
     if not path:
         raise HTTPException(404)
     return FileResponse(path)
@@ -166,27 +199,157 @@ async def media(vacation_id: str, filename: str):
 
 @app.get("/api/vacations")
 async def api_vacations():
-    return store.list_vacations(CFG)
+    return store.list_vacations(load_config())
 
 
 @app.get("/api/vacations/{vacation_id}")
 async def api_vacation(vacation_id: str):
-    meta = store.get_vacation(vacation_id, CFG)
+    meta = store.get_vacation(vacation_id, load_config())
     if not meta:
         raise HTTPException(404)
     meta.pop("_dir", None)
     return meta
 
 
+@app.get("/api/settings")
+async def api_settings_get():
+    cfg = load_config()
+    qrg = qrg_context(cfg)
+    qrg["admin_configured"] = _admin_configured(cfg)
+    qrg["recording"] = store.recording_in_progress(cfg)
+    return qrg
+
+
+def _khz_field(body: dict, key: str, label: str) -> float:
+    try:
+        khz = round(float(body[key]), 4)
+    except (KeyError, TypeError, ValueError) as exc:
+        raise HTTPException(400, f"{label} invalide") from exc
+    if not (1000.0 <= khz <= 30000.0):
+        raise HTTPException(400, f"{label} hors bande HF (1000–30000 kHz)")
+    return khz
+
+
+@app.put("/api/settings")
+async def api_settings_put(
+    request: Request,
+    x_admin_token: str | None = Header(default=None, alias="X-Admin-Token"),
+):
+    cfg = load_config()
+    _require_admin(x_admin_token, cfg)
+    try:
+        body = await request.json()
+    except Exception as exc:
+        raise HTTPException(400, "JSON invalide") from exc
+    if not isinstance(body, dict):
+        raise HTTPException(400, "JSON objet attendu")
+    tx_khz = _khz_field(body, "tx_khz", "QRG TX")
+    ack1_khz = _khz_field(body, "ack1_khz", "QRG ACK 16 m")
+    ack2_khz = _khz_field(body, "ack2_khz", "QRG ACK 12 m")
+    try:
+        tol = round(float(body.get("qrg_tolerance_khz", 5.0)), 3)
+        lead = int(body.get("lead_minutes", 1))
+        duration = int(body.get("duration_minutes", 10))
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(400, "Tolérance, avance ou durée invalide") from exc
+    if not (0.1 <= tol <= 15.0):
+        raise HTTPException(400, "Tolérance QRG hors plage (0,1–15 kHz)")
+    if not (0 <= lead <= 15):
+        raise HTTPException(400, "Avance hors plage (0–15 min)")
+    if not (1 <= duration <= 45):
+        raise HTTPException(400, "Durée hors plage (1–45 min)")
+    radio = cfg.get("radio") or {}
+    acks = [dict(row) for row in (radio.get("ack") or [])]
+    while len(acks) < 2:
+        acks.append({})
+    acks[0]["freq_khz"] = ack1_khz
+    acks[1]["freq_khz"] = ack2_khz
+    patch = {
+        "radio": {
+            "tx": {"freq_khz": tx_khz, "qrg_tolerance_khz": tol},
+            "ack": acks[:2],
+        },
+        "schedule": {"lead_minutes": lead, "duration_minutes": duration},
+    }
+    new_cfg = save_runtime_settings(patch, cfg)
+    scheduler = getattr(request.app.state, "scheduler", None)
+    if scheduler is not None:
+        apply_vacation_schedule(scheduler, new_cfg)
+    qrg = qrg_context(new_cfg)
+    qrg["ok"] = True
+    qrg["admin_configured"] = _admin_configured(new_cfg)
+    return qrg
+
+
 @app.post("/api/vacations/record")
-async def api_record(x_admin_token: str | None = Header(default=None, alias="X-Admin-Token")):
-    expected = (CFG.get("web") or {}).get("admin_token") or os.environ.get("GGR_ADMIN_TOKEN") or ""
-    if not expected or x_admin_token != expected:
-        raise HTTPException(403, "Jeton administrateur invalide")
-    if store.recording_in_progress(CFG):
+async def api_record(
+    request: Request,
+    x_admin_token: str | None = Header(default=None, alias="X-Admin-Token"),
+):
+    cfg = load_config()
+    _require_admin(x_admin_token, cfg)
+    if store.recording_in_progress(cfg):
         raise HTTPException(409, "Enregistrement déjà en cours")
-    asyncio.create_task(run_vacation(CFG, reason="api"))
-    return JSONResponse({"ok": True, "status": "started"}, status_code=202)
+    duration = None
+    freq_khz = None
+    hunt = True
+    tol = None
+    raw = await request.body()
+    if raw:
+        try:
+            body = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise HTTPException(400, "JSON invalide") from exc
+        if isinstance(body, dict):
+            if body.get("duration_minutes") is not None:
+                try:
+                    duration = int(body["duration_minutes"])
+                except (TypeError, ValueError) as exc:
+                    raise HTTPException(400, "duration_minutes invalide") from exc
+                if duration < 1 or duration > 45:
+                    raise HTTPException(400, "Durée hors plage (1–45 min)")
+            if body.get("freq_khz") is not None or body.get("freq") is not None:
+                try:
+                    freq_khz = parse_qrg_khz(body.get("freq_khz", body.get("freq")))
+                except ValueError as exc:
+                    raise HTTPException(400, str(exc)) from exc
+            if "hunt" in body:
+                hunt = bool(body.get("hunt"))
+            if body.get("qrg_tolerance_khz") is not None:
+                try:
+                    tol = float(body["qrg_tolerance_khz"])
+                except (TypeError, ValueError) as exc:
+                    raise HTTPException(400, "Tolérance QRG invalide") from exc
+                if not (0.1 <= tol <= 15.0):
+                    raise HTTPException(400, "Tolérance QRG hors plage (0,1–15 kHz)")
+    if freq_khz is not None:
+        minutes = duration if duration is not None else 2
+        asyncio.create_task(
+            run_manual_qrg(
+                freq_khz=freq_khz,
+                duration_minutes=minutes,
+                hunt=hunt,
+                qrg_tolerance_khz=tol,
+            )
+        )
+        return JSONResponse(
+            {
+                "ok": True,
+                "status": "started",
+                "mode": "qrg",
+                "freq_khz": freq_khz,
+                "freq_mhz": fmt_mhz(freq_khz),
+                "duration_minutes": minutes,
+                "hunt": hunt,
+            },
+            status_code=202,
+        )
+    asyncio.create_task(run_vacation(reason="api", duration_minutes=duration))
+    minutes = duration if duration is not None else int((cfg.get("schedule") or {}).get("duration_minutes") or 10)
+    return JSONResponse(
+        {"ok": True, "status": "started", "mode": "vacation", "duration_minutes": minutes},
+        status_code=202,
+    )
 
 
 def run() -> None:

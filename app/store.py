@@ -24,7 +24,7 @@ def _decorate(meta: dict[str, Any]) -> dict[str, Any]:
             thumb = ch["thumb"]
     meta["thumb"] = thumb
     meta["tx"] = tx
-    meta["is_test"] = meta.get("reason") in ("test-20m", "test-hunt")
+    meta["is_test"] = meta.get("reason") in ("test-20m", "test-hunt", "manual-qrg")
     return meta
 
 

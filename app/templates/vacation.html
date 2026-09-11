@@ -31,7 +31,13 @@
         <h3>{{ ch.label }}</h3>
         <p class="qrg__v">{{ '%.4f'|format(ch.freq_khz) }} kHz USB</p>
         {% if ch.kiwi %}
-        <p class="meta">{{ ch.kiwi.name }} · {{ ch.kiwi.distance_km }} km · SNR HF {{ ch.kiwi.snr_hf }}</p>
+        <p class="meta">
+          {% if ch.site_label %}<span class="badge">{{ ch.site_label }}</span>{% endif %}
+          {{ ch.kiwi.name }}
+          {% if ch.kiwi.fmt %} · {{ ch.kiwi.fmt }}{% endif %}
+          {% if ch.kiwi.site_km is defined %} · {{ ch.kiwi.site_km }} km du site{% endif %}
+          · SNR HF {{ ch.kiwi.snr_hf }}
+        </p>
         {% endif %}
         {% if ch.audio %}
         <audio controls src="/media/{{ vacation.id }}/{{ ch.audio }}" data-sync="1"></audio>

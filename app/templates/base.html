@@ -16,6 +16,7 @@
     <nav class="nav">
       <a href="/">Vacations</a>
       <a href="/flotte">Flotte &amp; SDR</a>
+      <a href="/reglages">Réglages</a>
       <a href="/a-propos">À propos</a>
     </nav>
   </header>
@@ -23,16 +24,16 @@
   <section class="qrg-bar" aria-label="Fréquences de vacation">
     <div class="qrg">
       <span class="qrg__k">TX {{ club_callsign }}</span>
-      <span class="qrg__v">14.135 MHz USB</span>
-      <span class="qrg__h">± 2–3 kHz · 18:00 TU</span>
+      <span class="qrg__v">{{ tx_mhz }} MHz USB</span>
+      <span class="qrg__h">± {{ qrg_tolerance_khz }} kHz · {{ time_utc }} TU</span>
     </div>
     <div class="qrg">
       <span class="qrg__k">ACK 16 m</span>
-      <span class="qrg__v">16.5515 MHz USB</span>
+      <span class="qrg__v">{{ ack1_mhz }} MHz USB</span>
     </div>
     <div class="qrg">
       <span class="qrg__k">ACK 12 m</span>
-      <span class="qrg__v">12.4185 MHz USB</span>
+      <span class="qrg__v">{{ ack2_mhz }} MHz USB</span>
     </div>
     <div class="qrg qrg--next">
       <span class="qrg__k">Prochain bulletin</span>

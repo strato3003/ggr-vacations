@@ -1,5 +1,5 @@
 # Configuration GGR Vacations — F6KUF / flotte Golden Globe Race
-version: "0.1.8"
+version: "0.1.9"
 
 club:
   callsign: F6KUF
@@ -9,9 +9,9 @@ club:
 schedule:
   # Heure TU du bulletin météo
   time_utc: "18:00"
-  # Démarrer avant 18:00 TU (QSY). Avec 10 min de durée : fenêtre 17:58–18:08 TU.
-  lead_minutes: 2
-  # Durée totale d'enregistrement (bulletin + accusés) — 10 min pour limiter le PVC
+  # Démarrer 1 min avant 18:00 TU (fenêtre 17:59–18:09 TU si durée 10 min).
+  lead_minutes: 1
+  # Durée d’enregistrement bulletin + ACK en parallèle (ajustable dans Réglages)
   duration_minutes: 10
 
 radio:
@@ -21,8 +21,8 @@ radio:
     high_hz: 2700
   tx:
     freq_khz: 14135.0
-    # Le club peut être à ± 2–3 kHz de la QRG nominale
-    qrg_tolerance_khz: 3.0
+    # Le club peut être à ± 5 kHz de la QRG nominale (QRM / QSY)
+    qrg_tolerance_khz: 5.0
     label: "Bulletin météo F6KUF"
     zoom: 10
   ack:
@@ -50,7 +50,8 @@ sdr:
   # Liste publique KiwiSDR (JS, virgules finales possibles)
   directory_url: "http://rx.linkfanel.net/kiwisdr_com.js"
   ident_user: ggr-vacations
-  # Places libres minimales (navigateur screencast + flux audio SND)
+  # Places libres minimales pour le screencast TX (navigateur = 1 slot).
+  # Les ACK n’ont besoin que d’un flux SND (1 place).
   min_free_slots: 2
   # Couverture HF nécessaire (Hz)
   min_freq_hz: 12000000
@@ -60,10 +61,24 @@ sdr:
   viewport:
     width: 1280
     height: 800
+  # Écoute ACK en parallèle : un Kiwi distinct par site (rayon max autour du point).
+  sites:
+    france:
+      # Les Sables-d'Olonne / F6KUF (WGS84)
+      lat: 46.5025
+      lon: -1.7888
+      label: France
+      radius_km: 1500
+    tahiti:
+      # Papeete 17°32′6″S 149°34′11″W (relais quand la flotte est dans l’océan Indien)
+      lat: -17.5350
+      lon: -149.5697
+      label: Tahiti
+      radius_km: 2500
 
 storage:
   data_dir: /data
-  # PVC 5 Gio : une vacation 10 min (screencast MP4 + 3 WAV) ≈ 100–150 Mio → ~14 jours
+  # PVC 5 Gio : 10 min (screencast + bulletin + 2 QRG × 3 sites) ≈ 150–220 Mio → ~14 jours
   retention_days: 14
 
 web:
