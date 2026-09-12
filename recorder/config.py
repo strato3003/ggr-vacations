@@ -50,6 +50,8 @@ def load_config(path: str | Path | None = None) -> dict[str, Any]:
             extra = None
         if isinstance(extra, dict) and extra:
             cfg = _deep_merge(cfg, extra)
+    if _migrate_legacy_ack_qrg(cfg):
+        _write_settings_merge(cfg, {"radio": {"ack": list((cfg.get("radio") or {}).get("ack") or [])}})
     return cfg
 
 
@@ -61,9 +63,8 @@ def _settings_file(cfg: dict[str, Any]) -> Path:
     return path / "settings.json"
 
 
-def save_runtime_settings(patch: dict[str, Any], cfg: dict[str, Any] | None = None) -> dict[str, Any]:
-    """Écrit un correctif (QRG, durée…) dans data/settings.json, sans toucher au ConfigMap."""
-    cfg = cfg or load_config()
+def _write_settings_merge(cfg: dict[str, Any], patch: dict[str, Any]) -> None:
+    """Fusionne un correctif dans settings.json sans recharger la config (évite la récursion)."""
     path = _settings_file(cfg)
     path.parent.mkdir(parents=True, exist_ok=True)
     current: dict[str, Any] = {}
@@ -76,11 +77,49 @@ def save_runtime_settings(patch: dict[str, Any], cfg: dict[str, Any] | None = No
             current = {}
     merged = _deep_merge(current, patch)
     path.write_text(json.dumps(merged, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+# Anciennes QRG : le « 5 » final était la tolérance ± 5 kHz, pas un demi-kilohertz.
+_LEGACY_ACK_KHZ = {16551.5: 16551.0, 12418.5: 12418.0}
+
+
+def ack_label(freq_khz: float) -> str:
+    return f"Accusé {fmt_mhz(freq_khz).replace('.', ',')} MHz"
+
+
+def _migrate_legacy_ack_qrg(cfg: dict[str, Any]) -> bool:
+    radio = cfg.get("radio")
+    if not isinstance(radio, dict):
+        return False
+    acks = radio.get("ack")
+    if not isinstance(acks, list):
+        return False
+    changed = False
+    for row in acks:
+        if not isinstance(row, dict):
+            continue
+        try:
+            khz = round(float(row.get("freq_khz")), 4)
+        except (TypeError, ValueError):
+            continue
+        new_khz = _LEGACY_ACK_KHZ.get(khz)
+        if new_khz is None:
+            continue
+        row["freq_khz"] = new_khz
+        row["label"] = ack_label(new_khz)
+        changed = True
+    return changed
+
+
+def save_runtime_settings(patch: dict[str, Any], cfg: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Écrit un correctif (QRG, durée…) dans data/settings.json, sans toucher au ConfigMap."""
+    cfg = cfg or load_config()
+    _write_settings_merge(cfg, patch)
     return load_config()
 
 
 def parse_qrg_khz(value: float | int | str) -> float:
-    """14.135 → 14135 kHz ; 14135 → 14135 kHz ; 16.5515 → 16551.5 kHz."""
+    """14.135 → 14135 kHz ; 14135 → 14135 kHz ; 16.551 → 16551 kHz."""
     try:
         raw = float(value)
     except (TypeError, ValueError) as exc:
@@ -95,7 +134,7 @@ def parse_qrg_khz(value: float | int | str) -> float:
 
 
 def fmt_mhz(freq_khz: float) -> str:
-    """14135.0 → 14.135 ; 16551.5 → 16.5515."""
+    """14135.0 → 14.135 ; 16551.0 → 16.551."""
     text = f"{float(freq_khz) / 1000.0:.4f}".rstrip("0").rstrip(".")
     return text or "0"
 
@@ -108,8 +147,8 @@ def qrg_context(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
     acks = list(radio.get("ack") or [])
     sched = cfg.get("schedule") or {}
     tx_khz = float(tx.get("freq_khz") or 14135.0)
-    ack1 = float(acks[0]["freq_khz"]) if acks else 16551.5
-    ack2 = float(acks[1]["freq_khz"]) if len(acks) > 1 else 12418.5
+    ack1 = float(acks[0]["freq_khz"]) if acks else 16551.0
+    ack2 = float(acks[1]["freq_khz"]) if len(acks) > 1 else 12418.0
     tol = float(tx.get("qrg_tolerance_khz") or 5.0)
     lead = int(sched.get("lead_minutes") or 1)
     duration = int(sched.get("duration_minutes") or 10)
@@ -126,8 +165,8 @@ def qrg_context(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
         "duration_minutes": duration,
         "time_utc": time_utc,
         "tx_label": tx.get("label") or "Bulletin météo F6KUF",
-        "ack1_label": (acks[0].get("label") if acks else None) or "Accusé 16,5515 MHz",
-        "ack2_label": (acks[1].get("label") if len(acks) > 1 else None) or "Accusé 12,4185 MHz",
+        "ack1_label": (acks[0].get("label") if acks else None) or ack_label(ack1),
+        "ack2_label": (acks[1].get("label") if len(acks) > 1 else None) or ack_label(ack2),
     }
 
 
@@ -147,4 +186,4 @@ def version(cfg: dict[str, Any] | None = None) -> str:
         return pkg_version("ggr-vacations")
     except PackageNotFoundError:
         cfg = cfg or {}
-        return str(cfg.get("version") or "0.1.11")
+        return str(cfg.get("version") or "0.1.12")

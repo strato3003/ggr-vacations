@@ -16,7 +16,7 @@ from fastapi.staticfiles import StaticFiles
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 from app import store
-from recorder.config import fmt_mhz, load_config, parse_qrg_khz, qrg_context, save_runtime_settings, version
+from recorder.config import ack_label, fmt_mhz, load_config, parse_qrg_khz, qrg_context, save_runtime_settings, version
 from recorder.fleet import fetch_fleet
 from recorder.kiwi_list import fetch_ranked_kiwis
 from recorder.scheduler import apply_vacation_schedule, build_scheduler
@@ -289,7 +289,9 @@ async def api_settings_put(
     while len(acks) < 2:
         acks.append({})
     acks[0]["freq_khz"] = ack1_khz
+    acks[0]["label"] = ack_label(ack1_khz)
     acks[1]["freq_khz"] = ack2_khz
+    acks[1]["label"] = ack_label(ack2_khz)
     patch = {
         "radio": {
             "tx": {"freq_khz": tx_khz, "qrg_tolerance_khz": tol},

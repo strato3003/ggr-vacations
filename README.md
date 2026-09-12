@@ -1,8 +1,8 @@
-# GGR Vacations 0.1.11
+# GGR Vacations 0.1.12
 
 Archives des **vacations HF** entre le radio-club **F6KUF** et les bateaux de la flotte **Golden Globe Race**.
 
-Tous les jours à **18:00 TU**, F6KUF émet un bulletin météo sur **14.135 MHz USB** (QRG nominale ± 5 kHz, suivi automatique si QRM) et écoute les accusés de réception sur **16.5515 MHz USB** et **12.4185 MHz USB**. L’application choisit les [KiwiSDR](http://kiwisdr.com/) selon la position : **bulletin 14 MHz** sur le récepteur le plus proche de la flotte ; **ACK** en parallèle près des bateaux, **en France** et **vers Tahiti** (relais prévu quand la flotte sera dans l’océan Indien). Audio USB + **screencast** de l’interface SDR pour le replay.
+Tous les jours à **18:00 TU**, F6KUF émet un bulletin météo sur **14.135 MHz USB** (QRG nominale ± 5 kHz, suivi automatique si QRM) et écoute les accusés de réception sur **16.551 MHz USB** et **12.418 MHz USB** (± 5 kHz). L’application choisit les [KiwiSDR](http://kiwisdr.com/) selon la position : **bulletin 14 MHz** sur le récepteur le plus proche de la flotte ; **ACK** en parallèle près des bateaux, **en France** et **vers Tahiti** (relais prévu quand la flotte sera dans l’océan Indien). Audio USB + **screencast** de l’interface SDR pour le replay.
 
 Les trois QRG, la tolérance, l’avance et la durée se règlent dans l’UI (**Réglages**). Un **record immédiat** permet de tester le suivi ± 5 kHz sans attendre 18:00 TU.
 
@@ -74,7 +74,7 @@ Défauts dans [`config/default.yaml`](config/default.yaml) ; overrides runtime d
 | Paramètre | Valeur |
 | --- | --- |
 | Bulletin | 14.135 MHz USB, ± 5 kHz, 18:00 TU |
-| Accusé | 16.5515 MHz USB, 12.4185 MHz USB (flotte + France + Tahiti, en parallèle du bulletin) |
+| Accusé | 16.551 MHz USB, 12.418 MHz USB (± 5 kHz ; flotte + France + Tahiti, en parallèle du bulletin) |
 | Avance | 1 min (début 17:59 TU) |
 | Durée | 10 min (fin 18:09 TU) |
 | Tracker | `ggr2026` sur `cf.yb.tl` |

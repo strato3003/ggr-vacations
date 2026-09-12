@@ -365,8 +365,9 @@ def test_fmt_mhz_keeps_hertz():
     from recorder.config import fmt_mhz
 
     assert fmt_mhz(14135.0) == "14.135"
+    assert fmt_mhz(16551.0) == "16.551"
+    assert fmt_mhz(12418.0) == "12.418"
     assert fmt_mhz(16551.5) == "16.5515"
-    assert fmt_mhz(12418.5) == "12.4185"
 
 
 def test_parse_qrg_khz_accepts_mhz_or_khz():
@@ -374,9 +375,9 @@ def test_parse_qrg_khz_accepts_mhz_or_khz():
 
     assert parse_qrg_khz(14.135) == 14135.0
     assert parse_qrg_khz(14135) == 14135.0
-    assert parse_qrg_khz("16.5515") == 16551.5
-    assert parse_qrg_khz(16551.5) == 16551.5
-    assert parse_qrg_khz(12.4185) == 12418.5
+    assert parse_qrg_khz("16.551") == 16551.0
+    assert parse_qrg_khz(16.551) == 16551.0
+    assert parse_qrg_khz(12.418) == 12418.0
 
 
 def test_zoom_for_span_covers_five_khz_window():
@@ -436,8 +437,8 @@ def test_ack_channels_per_site():
         "radio": {
             "tx": {"freq_khz": 14135.0, "label": "Bulletin météo F6KUF"},
             "ack": [
-                {"freq_khz": 16551.5, "label": "Accusé 16,5515 MHz"},
-                {"freq_khz": 12418.5, "label": "Accusé 12,4185 MHz"},
+                {"freq_khz": 16551.0, "label": "Accusé 16,551 MHz"},
+                {"freq_khz": 12418.0, "label": "Accusé 12,418 MHz"},
             ],
         },
         "sdr": {"screencast_tx": True, "screencast_ack": False},
@@ -484,8 +485,39 @@ def test_runtime_settings_override_qrg(tmp_path, monkeypatch):
     assert qrg["qrg_tolerance_khz"] == 5.0
     assert qrg["schedule_lead"] == 1
     assert qrg["duration_minutes"] == 12
-    assert qrg["ack1_khz"] == 16551.5
+    assert qrg["ack1_khz"] == 16551.0
+    assert qrg["ack2_khz"] == 12418.0
     assert (tmp_path / "settings.json").is_file()
+
+
+def test_legacy_ack_qrg_migrated_from_settings(tmp_path, monkeypatch):
+    import json
+
+    monkeypatch.setenv("GGR_DATA_DIR", str(tmp_path))
+    (tmp_path / "settings.json").write_text(
+        json.dumps(
+            {
+                "radio": {
+                    "ack": [
+                        {"freq_khz": 16551.5, "label": "Accusé 16,5515 MHz"},
+                        {"freq_khz": 12418.5, "label": "Accusé 12,4185 MHz"},
+                    ]
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    from recorder.config import load_config, qrg_context
+
+    qrg = qrg_context(load_config())
+    assert qrg["ack1_khz"] == 16551.0
+    assert qrg["ack2_khz"] == 12418.0
+    assert qrg["ack1_mhz"] == "16.551"
+    assert qrg["ack2_mhz"] == "12.418"
+    saved = json.loads((tmp_path / "settings.json").read_text(encoding="utf-8"))
+    assert saved["radio"]["ack"][0]["freq_khz"] == 16551.0
+    assert saved["radio"]["ack"][1]["freq_khz"] == 12418.0
+    assert saved["radio"]["ack"][0]["label"] == "Accusé 16,551 MHz"
 
 
 def test_usb_dial_in_plus_minus_five_khz_window():

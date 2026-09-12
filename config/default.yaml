@@ -1,5 +1,5 @@
 # Configuration GGR Vacations — F6KUF / flotte Golden Globe Race
-version: "0.1.11"
+version: "0.1.12"
 
 club:
   callsign: F6KUF
@@ -26,11 +26,12 @@ radio:
     label: "Bulletin météo F6KUF"
     zoom: 10
   ack:
-    - freq_khz: 16551.5
-      label: "Accusé 16,5515 MHz"
+    # Le « 5 » final des anciennes notations 16.5515 / 12.4185 était la tolérance ± 5 kHz.
+    - freq_khz: 16551.0
+      label: "Accusé 16,551 MHz"
       zoom: 10
-    - freq_khz: 12418.5
-      label: "Accusé 12,4185 MHz"
+    - freq_khz: 12418.0
+      label: "Accusé 12,418 MHz"
       zoom: 10
 
 # Position moyenne de la flotte GGR (Yellowbrick)
