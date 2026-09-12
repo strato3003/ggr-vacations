@@ -37,8 +37,28 @@
     </div>
     <div class="qrg qrg--next">
       <span class="qrg__k">Prochain bulletin</span>
-      <span class="qrg__v" id="countdown" data-iso="{{ bulletin_iso }}">{{ bulletin_label }} TU</span>
+      <span class="qrg__v js-countdown" id="countdown" data-iso="{{ bulletin_iso }}">{{ bulletin_label }} TU</span>
       {% if recording %}<span class="live">Enregistrement en cours</span>{% endif %}
+    </div>
+  </section>
+  <section class="qrg-bar qrg-bar--buddy" aria-label="Buddy call">
+    <div class="qrg">
+      <span class="qrg__k">Buddy principale</span>
+      <span class="qrg__v">{{ '%.0f'|format(buddy_main_khz) }} kHz USB</span>
+      <span class="qrg__h">{{ buddy_time_utc }} TU{% if not buddy_enabled %} · off{% endif %}</span>
+    </div>
+    <div class="qrg">
+      <span class="qrg__k">Buddy secours</span>
+      <span class="qrg__v">{{ '%.0f'|format(buddy_alt_khz) }} kHz USB</span>
+    </div>
+    <div class="qrg">
+      <span class="qrg__k">Centroïde buddy</span>
+      <span class="qrg__v qrg__v--small">{{ buddy_skippers_short }}</span>
+      <span class="qrg__h">{% if buddy_include_fleet %}trio + flotte{% else %}skippers listés{% endif %}</span>
+    </div>
+    <div class="qrg qrg--next">
+      <span class="qrg__k">Prochain buddy call</span>
+      <span class="qrg__v js-countdown" data-iso="{{ buddy_iso }}">{{ buddy_label }} TU</span>
     </div>
   </section>
 

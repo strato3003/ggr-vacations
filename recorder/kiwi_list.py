@@ -8,7 +8,7 @@ import re
 from typing import Any
 from urllib.parse import urlparse
 
-from recorder.geo import fmt_latlon, haversine_km
+from recorder.geo import fmt_latlon, haversine_km, initial_bearing
 
 log = logging.getLogger(__name__)
 
@@ -53,6 +53,81 @@ def _covers_hf(bands: tuple[int, int] | None, min_hz: int, max_hz: int) -> bool:
         return False
     lo, hi = bands
     return lo <= min_hz and hi >= max_hz
+
+
+def _covers_freqs(bands: tuple[int, int] | None, freqs_hz: list[int]) -> bool:
+    """True si chaque QRG demandée est dans la bande du Kiwi (pas tout l’intervalle min–max)."""
+    if not bands or not freqs_hz:
+        return False
+    lo, hi = bands
+    return all(lo <= int(freq) <= hi for freq in freqs_hz)
+
+
+def _az_sep(a: float, b: float) -> float:
+    d = abs(float(a) - float(b)) % 360.0
+    return min(d, 360.0 - d)
+
+
+def hf_midday_zone(dist_km: float) -> str:
+    """Zone ionosphérique approximative à 12:00 TU pour 4–7 MHz."""
+    d = float(dist_km)
+    if d <= 850:
+        return "nvis"
+    if d <= 1400:
+        return "skip"
+    if d <= 3200:
+        return "hop"
+    if d <= 5500:
+        return "far"
+    return "dx"
+
+
+def hf_midday_prop_score(dist_km: float, freq_khz: float) -> float:
+    """Score 0–1 : NVIS / zone morte / 1 saut F, midi TU.
+
+    Heuristique générale (pas un modèle VOACAP) : vers 12:00 TU la couche D
+    absorbe le 4 MHz sur les trajets longs ; le 6 MHz ouvre plutôt en 1 saut
+    (~1400–3200 km). Un Kiwi dans la zone morte (~850–1400 km) est pénalisé.
+    """
+    d = float(dist_km)
+    f = float(freq_khz)
+    if f < 5500.0:
+        if d <= 850:
+            return 1.0
+        if d <= 1400:
+            return 0.18
+        if d <= 2500:
+            return 0.42
+        if d <= 4000:
+            return 0.22
+        return 0.10
+    if d <= 500:
+        return 0.72
+    if d <= 1400:
+        return 0.28
+    if d <= 3200:
+        return 1.0
+    if d <= 5500:
+        return 0.58
+    return 0.20
+
+
+def score_buddy_kiwi(
+    kiwi: dict[str, Any],
+    lat: float,
+    lon: float,
+    freqs_khz: list[float],
+) -> float:
+    """Propagation 4/6 MHz + SNR + places — pas la seule proximité."""
+    dist = float(kiwi.get("distance_km") or haversine_km(lat, lon, float(kiwi["lat"]), float(kiwi["lon"])))
+    props = [hf_midday_prop_score(dist, f) for f in freqs_khz] or [0.0]
+    prop = max(props)
+    snr = min(max(float(kiwi.get("snr_hf") or 0) / 40.0, 0.0), 1.0)
+    free = min(max(float(kiwi.get("free_slots") or 0) / 4.0, 0.0), 1.0)
+    bands = kiwi.get("bands_hz")
+    hz = [int(round(f * 1000.0)) for f in freqs_khz]
+    both = 1.0 if (isinstance(bands, (list, tuple)) and len(bands) == 2 and _covers_freqs((int(bands[0]), int(bands[1])), hz)) else 0.55
+    return 0.50 * prop + 0.28 * snr + 0.12 * free + 0.10 * both
 
 
 def _host_port(url: str) -> tuple[str, int, bool] | None:
@@ -180,6 +255,98 @@ def assign_vacation_kiwis(
     return out
 
 
+def _buddy_freqs_khz(cfg: dict[str, Any]) -> list[float]:
+    buddy = cfg.get("buddy") or {}
+    main = float((buddy.get("main") or {}).get("freq_khz") or 4483.0)
+    alt = float((buddy.get("alternate") or {}).get("freq_khz") or 6516.0)
+    return [main, alt]
+
+
+def assign_buddy_kiwis(
+    pool: list[dict[str, Any]],
+    *,
+    lat: float,
+    lon: float,
+    cfg: dict[str, Any],
+) -> dict[str, dict[str, Any]]:
+    """Plusieurs Kiwi : NVIS, saut 1 hop, second azimut, puis complément distant.
+
+    Le plus proche n’est retenu que s’il est en zone NVIS ; un récepteur dans
+    la zone morte (~1000 km) est évité au profit d’un 1 saut vers 6 MHz.
+    """
+    kiwi_cfg = ((cfg.get("buddy") or {}).get("kiwi") or {})
+    want = max(1, min(int(kiwi_cfg.get("count") or 4), 8))
+    sep = float(kiwi_cfg.get("min_separation_km") or 400)
+    used: set[str] = set()
+    out: dict[str, dict[str, Any]] = {}
+
+    def far_enough(kiwi: dict[str, Any]) -> bool:
+        for other in out.values():
+            if haversine_km(float(kiwi["lat"]), float(kiwi["lon"]), float(other["lat"]), float(other["lon"])) < sep:
+                return False
+        return True
+
+    def take(role: str, label: str, pred, *, min_az_from: float | None = None) -> dict[str, Any] | None:
+        best: dict[str, Any] | None = None
+        best_score = -1.0
+        for kiwi in pool:
+            if kiwi_key(kiwi) in used:
+                continue
+            if not pred(kiwi):
+                continue
+            if out and not far_enough(kiwi):
+                continue
+            if min_az_from is not None:
+                az = initial_bearing(lat, lon, float(kiwi["lat"]), float(kiwi["lon"]))
+                if _az_sep(az, min_az_from) < 50.0:
+                    continue
+            sc = float(kiwi.get("score") or 0.0)
+            if sc > best_score:
+                best, best_score = kiwi, sc
+        if best is None:
+            return None
+        chosen = dict(best)
+        dist = round(haversine_km(lat, lon, float(best["lat"]), float(best["lon"])), 1)
+        chosen["site"] = role
+        chosen["site_label"] = label
+        chosen["site_km"] = dist
+        chosen["prop_zone"] = hf_midday_zone(dist)
+        out[role] = chosen
+        used.add(kiwi_key(best))
+        log.info(
+            "Kiwi buddy %s → %s (%.0f km, zone %s, score %s)",
+            label,
+            chosen.get("name"),
+            dist,
+            chosen["prop_zone"],
+            chosen.get("score"),
+        )
+        return chosen
+
+    take("nvis", "proche / NVIS", lambda k: float(k.get("distance_km") or 0) <= 850)
+    hop = take("hop", "saut 1 hop", lambda k: 1400 <= float(k.get("distance_km") or 0) <= 3200)
+    hop_az = None
+    if hop:
+        hop_az = initial_bearing(lat, lon, float(hop["lat"]), float(hop["lon"]))
+    take(
+        "hop2",
+        "saut 1 hop (autre azimut)",
+        lambda k: 1400 <= float(k.get("distance_km") or 0) <= 4000,
+        min_az_from=hop_az,
+    )
+    take("far", "saut long", lambda k: 2800 <= float(k.get("distance_km") or 0) <= 5500)
+
+    n = 0
+    while len(out) < want:
+        n += 1
+        extra = take(f"rx{n}", "diversité", lambda k: hf_midday_zone(float(k.get("distance_km") or 0)) != "skip")
+        if extra is None:
+            extra = take(f"rx{n}", "diversité", lambda _k: True)
+        if extra is None:
+            break
+    return out
+
+
 def score_kiwi(
     kiwi: dict[str, Any],
     fleet_lat: float,
@@ -200,6 +367,8 @@ def normalize_receiver(
     cfg: dict[str, Any],
     *,
     min_free: int | None = None,
+    cover_hz: list[int] | None = None,
+    score_mode: str = "fleet",
 ) -> dict[str, Any] | None:
     if str(row.get("offline") or "").lower() not in ("no", "0", ""):
         return None
@@ -210,10 +379,14 @@ def normalize_receiver(
         return None
     bands = _parse_bands(str(row.get("bands") or ""))
     sdr_cfg = cfg.get("sdr") or {}
-    min_hz = int(sdr_cfg.get("min_freq_hz") or 12_000_000)
-    max_hz = int(sdr_cfg.get("max_freq_hz") or 17_000_000)
-    if not _covers_hf(bands, min_hz, max_hz):
-        return None
+    if cover_hz:
+        if not _covers_freqs(bands, cover_hz):
+            return None
+    else:
+        min_hz = int(sdr_cfg.get("min_freq_hz") or 12_000_000)
+        max_hz = int(sdr_cfg.get("max_freq_hz") or 17_000_000)
+        if not _covers_hf(bands, min_hz, max_hz):
+            return None
     url = str(row.get("url") or "").strip()
     hp = _host_port(url)
     if not hp:
@@ -249,8 +422,13 @@ def normalize_receiver(
         "free_slots": free,
         "distance_km": round(dist, 1),
         "fmt": fmt_latlon(gps[0], gps[1]),
+        "bands_hz": list(bands) if bands else None,
+        "prop_zone": hf_midday_zone(dist),
     }
-    kiwi["score"] = round(score_kiwi(kiwi, fleet_lat, fleet_lon), 4)
+    if score_mode == "buddy":
+        kiwi["score"] = round(score_buddy_kiwi(kiwi, fleet_lat, fleet_lon, _buddy_freqs_khz(cfg)), 4)
+    else:
+        kiwi["score"] = round(score_kiwi(kiwi, fleet_lat, fleet_lon), 4)
     return kiwi
 
 
@@ -261,6 +439,8 @@ async def fetch_ranked_kiwis(
     client: Any | None = None,
     limit: int = 12,
     min_free: int | None = None,
+    cover_hz: list[int] | None = None,
+    score_mode: str = "fleet",
 ) -> list[dict[str, Any]]:
     import httpx
 
@@ -277,7 +457,15 @@ async def fetch_ranked_kiwis(
             await client.aclose()
     ranked: list[dict[str, Any]] = []
     for row in rows:
-        kiwi = normalize_receiver(row, fleet_lat, fleet_lon, cfg, min_free=min_free)
+        kiwi = normalize_receiver(
+            row,
+            fleet_lat,
+            fleet_lon,
+            cfg,
+            min_free=min_free,
+            cover_hz=cover_hz,
+            score_mode=score_mode,
+        )
         if kiwi:
             ranked.append(kiwi)
     ranked.sort(key=lambda k: k["score"], reverse=True)

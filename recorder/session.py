@@ -11,11 +11,11 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-from recorder.config import data_dir, fmt_mhz, load_config, version
-from recorder.fleet import fetch_fleet
+from recorder.config import data_dir, fmt_khz, fmt_mhz, load_config, version
+from recorder.fleet import buddy_aim, fetch_fleet
 from recorder.geo import fmt_latlon
 from recorder.kiwi_audio import record_kiwi_wav
-from recorder.kiwi_list import assign_vacation_kiwis, fetch_ranked_kiwis, pick_nearest
+from recorder.kiwi_list import assign_buddy_kiwis, assign_vacation_kiwis, fetch_ranked_kiwis, pick_nearest
 from recorder.postprocess import mux_screencast, thumbnail
 from recorder.screencast import record_screencast
 from recorder.kiwi_wf import HUNT_CF_KHZ, HUNT_HI_KHZ, HUNT_LO_KHZ, HUNT_ZOOM, hunt_usb_signal
@@ -103,6 +103,17 @@ def next_vacation_utc(cfg: dict[str, Any], now: datetime | None = None) -> datet
     sched = cfg.get("schedule") or {}
     hh, mm = (sched.get("time_utc") or "18:00").split(":")
     lead = int(sched.get("lead_minutes") or 1)
+    now = now or datetime.now(timezone.utc)
+    start = now.replace(hour=int(hh), minute=int(mm), second=0, microsecond=0) - timedelta(minutes=lead)
+    if start <= now:
+        start = start + timedelta(days=1)
+    return start
+
+
+def next_buddy_utc(cfg: dict[str, Any], now: datetime | None = None) -> datetime:
+    buddy = cfg.get("buddy") or {}
+    hh, mm = str(buddy.get("time_utc") or "12:00").split(":")
+    lead = int(buddy.get("lead_minutes") or 1)
     now = now or datetime.now(timezone.utc)
     start = now.replace(hour=int(hh), minute=int(mm), second=0, microsecond=0) - timedelta(minutes=lead)
     if start <= now:
@@ -469,6 +480,232 @@ async def run_vacation(
         meta["error"] = str(exc)
         meta["ended_at"] = datetime.now(timezone.utc).isoformat()
         log.exception("Vacation %s en échec", vid)
+        return meta
+    finally:
+        _finalize_media(session_dir, meta)
+        _write_meta(session_dir, meta)
+        try:
+            lock.unlink()
+        except OSError:
+            pass
+
+
+def _buddy_channels(cfg: dict[str, Any], roles: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
+    buddy = cfg.get("buddy") or {}
+    main = buddy.get("main") or {}
+    alt = buddy.get("alternate") or {}
+    main_khz = float(main.get("freq_khz") or 4483.0)
+    alt_khz = float(alt.get("freq_khz") or 6516.0)
+    main_label = main.get("label") or f"Buddy call {fmt_khz(main_khz)} kHz"
+    alt_label = alt.get("label") or f"Buddy call {fmt_khz(alt_khz)} kHz (secours)"
+    main_zoom = int(main.get("zoom") or 10)
+    alt_zoom = int(alt.get("zoom") or 10)
+    rows: list[dict[str, Any]] = []
+    first = True
+    for site, kiwi in roles.items():
+        slabel = kiwi.get("site_label") or site
+        need_two = int(kiwi.get("free_slots") or 0) >= 2
+        rows.append(
+            {
+                "id": f"{site}-main",
+                "kind": "buddy-main",
+                "site": site,
+                "site_label": slabel,
+                "freq_khz": main_khz,
+                "label": f"{main_label} · {slabel}",
+                "zoom": main_zoom,
+                "screencast": first,
+            }
+        )
+        first = False
+        if need_two:
+            rows.append(
+                {
+                    "id": f"{site}-alt",
+                    "kind": "buddy-alt",
+                    "site": site,
+                    "site_label": slabel,
+                    "freq_khz": alt_khz,
+                    "label": f"{alt_label} · {slabel}",
+                    "zoom": alt_zoom,
+                    "screencast": False,
+                }
+            )
+        else:
+            log.info("Kiwi %s : une seule place — 4483 kHz seulement (pas 6516)", kiwi.get("name"))
+    return rows
+
+
+async def run_buddy_call(
+    cfg: dict[str, Any] | None = None,
+    *,
+    reason: str = "buddy",
+    duration_minutes: int | None = None,
+) -> dict[str, Any]:
+    """Écoute quotidienne 12:00 TU : 4483 kHz + 6516 kHz sur plusieurs Kiwi."""
+    cfg = cfg or load_config()
+    buddy = cfg.get("buddy") or {}
+    root = data_dir(cfg)
+    lock = root / LOCK_NAME
+    if lock.exists():
+        raise RuntimeError("Un enregistrement est déjà en cours")
+    lock.write_text(datetime.now(timezone.utc).isoformat(), encoding="utf-8")
+    started = datetime.now(timezone.utc)
+    vid = vacation_id(started) + "-buddy"
+    session_dir = root / "vacations" / vid
+    session_dir.mkdir(parents=True, exist_ok=True)
+    main_khz = float((buddy.get("main") or {}).get("freq_khz") or 4483.0)
+    alt_khz = float((buddy.get("alternate") or {}).get("freq_khz") or 6516.0)
+    cover_hz = [int(round(main_khz * 1000.0)), int(round(alt_khz * 1000.0))]
+    min_free = int(((buddy.get("kiwi") or {}).get("min_free_slots") or 2))
+    meta: dict[str, Any] = {
+        "id": vid,
+        "status": "running",
+        "reason": reason,
+        "title": f"Buddy call {fmt_khz(main_khz)} / {fmt_khz(alt_khz)} kHz",
+        "version": version(cfg),
+        "club": cfg.get("club"),
+        "started_at": started.isoformat(),
+        "buddy": buddy,
+        "channels": [],
+    }
+    _write_meta(session_dir, meta)
+    try:
+        fleet = await fetch_fleet(cfg)
+        aim = buddy_aim(fleet, cfg)
+        meta["fleet"] = fleet
+        meta["buddy_aim"] = aim
+        ranked = await fetch_ranked_kiwis(
+            cfg,
+            float(aim["lat"]),
+            float(aim["lon"]),
+            limit=0,
+            min_free=min_free,
+            cover_hz=cover_hz,
+            score_mode="buddy",
+        )
+        if len(ranked) < 2:
+            ranked = await fetch_ranked_kiwis(
+                cfg,
+                float(aim["lat"]),
+                float(aim["lon"]),
+                limit=0,
+                min_free=1,
+                cover_hz=cover_hz,
+                score_mode="buddy",
+            )
+        meta["kiwis_ranked"] = ranked[:10]
+        roles = assign_buddy_kiwis(ranked, lat=float(aim["lat"]), lon=float(aim["lon"]), cfg=cfg)
+        if not roles:
+            raise RuntimeError("Aucun KiwiSDR couvrant 4483 et 6516 kHz vers le centroïde buddy")
+        meta["kiwi_roles"] = {
+            role: {
+                "name": kiwi.get("name"),
+                "url": kiwi.get("url"),
+                "fmt": kiwi.get("fmt"),
+                "site_km": kiwi.get("site_km"),
+                "snr_hf": kiwi.get("snr_hf"),
+                "prop_zone": kiwi.get("prop_zone"),
+                "site_label": kiwi.get("site_label"),
+            }
+            for role, kiwi in roles.items()
+        }
+        channels = _buddy_channels(cfg, roles)
+        assignment = {ch["id"]: roles[str(ch["site"])] for ch in channels if str(ch.get("site")) in roles}
+        minutes = (
+            duration_minutes
+            if duration_minutes is not None
+            else int(buddy.get("duration_minutes") or 15)
+        )
+        duration = int(minutes) * 60
+        meta["duration_minutes"] = int(minutes)
+        radio = cfg.get("radio") or {}
+        filt = radio.get("usb_filter") or {}
+        ident = (cfg.get("sdr") or {}).get("ident_user") or "ggr-vacations"
+        viewport = (cfg.get("sdr") or {}).get("viewport") or {"width": 1280, "height": 800}
+        when_label = started.strftime("%Y-%m-%d %H:%M")
+        mode = str(buddy.get("mode") or radio.get("mode") or "usb")
+        jobs = []
+        for ch in channels:
+            kiwi = assignment.get(ch["id"])
+            if not kiwi:
+                continue
+            ch_out = {
+                **ch,
+                "kiwi": {
+                    "name": kiwi.get("name"),
+                    "url": kiwi.get("url"),
+                    "distance_km": kiwi.get("distance_km"),
+                    "fmt": kiwi.get("fmt"),
+                    "snr_hf": kiwi.get("snr_hf"),
+                    "site_km": kiwi.get("site_km"),
+                    "prop_zone": kiwi.get("prop_zone"),
+                },
+            }
+            wav = session_dir / f"audio-{ch['id']}.wav"
+            ch_out["audio_file"] = str(wav.name)
+            if ch.get("screencast"):
+                webm = session_dir / f"screencast-{ch['id']}.webm"
+                overlay = {
+                    "when": when_label,
+                    "channel": ch["label"],
+                    "freq": f"{fmt_khz(ch['freq_khz'])} kHz USB",
+                    "kiwi": kiwi.get("name"),
+                }
+                jobs.append(
+                    record_screencast(
+                        kiwi,
+                        ch["freq_khz"],
+                        webm,
+                        duration,
+                        mode=mode,
+                        zoom=int(ch.get("zoom") or 10),
+                        viewport=viewport,
+                        overlay=overlay,
+                        snd_wav=wav,
+                    )
+                )
+                ch_out["screencast_raw"] = str(webm.name)
+            else:
+                jobs.append(
+                    record_kiwi_wav(
+                        kiwi,
+                        ch["freq_khz"],
+                        wav,
+                        duration,
+                        mode=mode,
+                        low_hz=int(filt.get("low_hz") or 300),
+                        high_hz=int(filt.get("high_hz") or 2700),
+                        ident=f"{ident}-buddy-{ch.get('site') or ch['id']}",
+                    )
+                )
+            meta["channels"].append(ch_out)
+        if not jobs:
+            raise RuntimeError("Aucun canal buddy à enregistrer")
+        _write_meta(session_dir, meta)
+        try:
+            results = await asyncio.wait_for(
+                asyncio.gather(*jobs, return_exceptions=True),
+                timeout=duration + RECORDING_GRACE_S,
+            )
+        except TimeoutError:
+            raise RuntimeError(
+                f"Timeout buddy après {int((duration + RECORDING_GRACE_S) / 60)} min"
+            ) from None
+        meta["raw_results"] = [(repr(r) if isinstance(r, Exception) else r) for r in results]
+        for ch, raw in zip(meta["channels"], results):
+            if isinstance(raw, dict) and isinstance(raw.get("audio_delay_s"), (int, float)):
+                ch["audio_delay_s"] = round(float(raw["audio_delay_s"]), 3)
+        meta["status"] = "complete"
+        meta["ended_at"] = datetime.now(timezone.utc).isoformat()
+        meta["fleet_fmt"] = aim.get("fmt") or fmt_latlon(aim["lat"], aim["lon"])
+        log.info("Buddy call %s terminé (%s Kiwi)", vid, len(roles))
+        return meta
+    except Exception as exc:
+        meta["status"] = "error"
+        meta["error"] = str(exc)
+        meta["ended_at"] = datetime.now(timezone.utc).isoformat()
+        log.exception("Buddy call %s en échec", vid)
         return meta
     finally:
         _finalize_media(session_dir, meta)
@@ -846,18 +1083,20 @@ def _finalize_media(session_dir: Path, meta: dict[str, Any]) -> None:
     leftovers = [p for p in session_dir.glob("*.webm") if p.is_file() and p.stat().st_size > 64]
     if not leftovers:
         return
-    tx = next((c for c in channels if c.get("id") == "tx"), None)
-    if tx is None:
-        tx = {
+    host = next((c for c in channels if c.get("id") == "tx" or c.get("screencast")), None)
+    if host is None and channels:
+        host = channels[0]
+    if host is None:
+        host = {
             "id": "tx",
             "kind": "tx",
             "freq_khz": 14135.0,
             "label": "Bulletin météo F6KUF",
             "screencast": True,
         }
-        channels.insert(0, tx)
-    if not tx.get("video"):
-        _mux_channel(session_dir, tx, max(leftovers, key=lambda p: p.stat().st_size))
+        channels.insert(0, host)
+    if not host.get("video"):
+        _mux_channel(session_dir, host, max(leftovers, key=lambda p: p.stat().st_size))
 
 
 def _write_meta(session_dir: Path, meta: dict[str, Any]) -> None:
@@ -897,6 +1136,7 @@ def purge_old(cfg: dict[str, Any] | None = None) -> int:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Enregistrer une vacation HF GGR / F6KUF")
     parser.add_argument("--once", action="store_true", help="Lancer un enregistrement immédiat (vacation F6KUF)")
+    parser.add_argument("--buddy", action="store_true", help="Lancer un buddy call immédiat (4483 / 6516 kHz)")
     parser.add_argument("--test-20m", action="store_true", help="Scan USB 20 m (test), puis archive dans l’UI")
     parser.add_argument(
         "--test-hunt",
@@ -921,6 +1161,12 @@ def main() -> None:
         return
     if args.once:
         meta = asyncio.run(run_vacation(cfg, reason="manual"))
+        print(json.dumps({"id": meta.get("id"), "status": meta.get("status"), "error": meta.get("error")}, ensure_ascii=False))
+        if meta.get("status") != "complete":
+            raise SystemExit(1)
+        return
+    if args.buddy:
+        meta = asyncio.run(run_buddy_call(cfg, reason="buddy-manual"))
         print(json.dumps({"id": meta.get("id"), "status": meta.get("status"), "error": meta.get("error")}, ensure_ascii=False))
         if meta.get("status") != "complete":
             raise SystemExit(1)

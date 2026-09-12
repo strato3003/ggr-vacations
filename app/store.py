@@ -26,9 +26,12 @@ def _decorate(meta: dict[str, Any]) -> dict[str, Any]:
             tx = ch
         if ch.get("thumb") and not thumb:
             thumb = ch["thumb"]
+    if tx is None:
+        tx = next((c for c in (meta.get("channels") or []) if c.get("video") or c.get("screencast")), None)
     meta["thumb"] = thumb
     meta["tx"] = tx
     meta["is_test"] = meta.get("reason") in ("test-20m", "test-hunt", "manual-qrg")
+    meta["is_buddy"] = str(meta.get("reason") or "").startswith("buddy")
     return meta
 
 

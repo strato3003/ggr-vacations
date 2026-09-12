@@ -4,8 +4,8 @@
 <article class="prose">
   <h1>Réglages radio</h1>
   <p>
-    Trois actions distinctes : tester une QRG maintenant, mémoriser les fréquences
-    de la vacation quotidienne, ou lancer cette vacation comme à 18:00 TU.
+    Trois actions pour le bulletin 18:00 TU, plus le <strong>buddy call</strong> de 12:00 TU
+    (4483 kHz principale, 6516 kHz secours).
   </p>
 </article>
 
@@ -13,7 +13,7 @@
 
 <form id="reglages-form" class="settings" autocomplete="off">
   <fieldset>
-    <legend>Jeton (obligatoire pour les 3 boutons)</legend>
+    <legend>Jeton (obligatoire pour enregistrer et sauver)</legend>
     <label>
       Jeton administrateur
       <input name="admin_token" type="password" autocomplete="off"
@@ -97,6 +97,79 @@
       <button type="button" class="btn" id="record-now">Lancer la vacation complète</button>
     </p>
     <p class="settings-msg" data-for="vac" role="status"></p>
+  </fieldset>
+
+  <fieldset id="buddy-call">
+    <legend>4 · Buddy call {{ buddy_time_utc }} TU</legend>
+    <p class="hint">
+      Écoute <strong>{{ '%.0f'|format(buddy_main_khz) }} kHz</strong> (principale) et
+      <strong>{{ '%.0f'|format(buddy_alt_khz) }} kHz</strong> (secours) sur plusieurs KiwiSDR.
+      Le centroïde est celui des skippers cochés, ou de toute la flotte en course si
+      « inclure le reste » est coché. Les Kiwi ne sont pas seulement les plus proches :
+      NVIS (près des bateaux) et saut 1 hop (zone d’arrivée ~1400–3200 km à 12:00 TU).
+    </p>
+    <label class="settings__check">
+      <input name="buddy_enabled" type="checkbox" {% if buddy_enabled %}checked{% endif %}>
+      Enregistrement quotidien à {{ buddy_time_utc }} TU
+    </label>
+    <label>
+      QRG principale (kHz)
+      <input name="buddy_main_khz" type="number" step="0.0001" min="1000" max="30000" required
+             value="{{ '%.4f'|format(buddy_main_khz) }}">
+    </label>
+    <label>
+      QRG secours (kHz)
+      <input name="buddy_alt_khz" type="number" step="0.0001" min="1000" max="30000" required
+             value="{{ '%.4f'|format(buddy_alt_khz) }}">
+    </label>
+    <label>
+      Heure TU
+      <input name="buddy_time_utc" type="text" required pattern="[0-2][0-9]:[0-5][0-9]"
+             value="{{ buddy_time_utc }}">
+    </label>
+    <label>
+      Avance (min)
+      <input name="buddy_lead" type="number" step="1" min="0" max="15" required
+             value="{{ buddy_lead }}">
+    </label>
+    <label>
+      Durée (min)
+      <input name="buddy_duration_minutes" type="number" step="1" min="1" max="45" required
+             value="{{ buddy_duration_minutes }}">
+    </label>
+    <label>
+      Nombre de KiwiSDR
+      <input name="buddy_kiwi_count" type="number" step="1" min="1" max="8" required
+             value="{{ buddy_kiwi_count }}">
+    </label>
+    <p class="hint">Skippers du centroïde (noms tracker Yellowbrick)</p>
+    {% if boats %}
+    <ul class="skipper-list">
+      {% for b in boats %}
+      <li>
+        <label>
+          <input type="checkbox" name="buddy_skipper" value="{{ b.name }}"
+                 {% if b.name in buddy_skippers %}checked{% endif %}>
+          {{ b.name }}{% if b.sail %} <span class="meta">({{ b.sail }})</span>{% endif %}
+        </label>
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <label>
+      Un skipper par ligne
+      <textarea name="buddy_skippers_text" rows="4">{{ buddy_skippers | join('\n') }}</textarea>
+    </label>
+    {% endif %}
+    <label class="settings__check">
+      <input name="buddy_include_fleet" type="checkbox" {% if buddy_include_fleet %}checked{% endif %}>
+      Inclure le reste de la flotte en course dans le centroïde
+    </label>
+    <p class="settings__actions">
+      <button type="button" class="btn" id="save-buddy">Sauver le buddy call</button>
+      <button type="button" class="btn btn--rx" id="record-buddy">Lancer un buddy call maintenant</button>
+    </p>
+    <p class="settings-msg" data-for="buddy" role="status"></p>
   </fieldset>
 </form>
 {% endblock %}

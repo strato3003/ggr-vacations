@@ -35,14 +35,37 @@
     btn.disabled = on;
   };
 
-  const payload = () => ({
-    tx_khz: Number(form.elements.namedItem("tx_khz").value),
-    ack1_khz: Number(form.elements.namedItem("ack1_khz").value),
-    ack2_khz: Number(form.elements.namedItem("ack2_khz").value),
-    qrg_tolerance_khz: Number(form.elements.namedItem("qrg_tolerance_khz").value),
-    lead_minutes: Number(form.elements.namedItem("lead_minutes").value),
-    duration_minutes: Number(form.elements.namedItem("duration_minutes").value),
-  });
+  const payload = () => {
+    const skipperBoxes = [...form.querySelectorAll('input[name="buddy_skipper"]:checked')];
+    const skipperText = form.elements.namedItem("buddy_skippers_text");
+    const skippers = skipperBoxes.length
+      ? skipperBoxes.map((el) => el.value)
+      : skipperText
+        ? String(skipperText.value || "")
+            .split("\n")
+            .map((s) => s.trim())
+            .filter(Boolean)
+        : [];
+    const enabledEl = form.elements.namedItem("buddy_enabled");
+    const fleetEl = form.elements.namedItem("buddy_include_fleet");
+    return {
+      tx_khz: Number(form.elements.namedItem("tx_khz").value),
+      ack1_khz: Number(form.elements.namedItem("ack1_khz").value),
+      ack2_khz: Number(form.elements.namedItem("ack2_khz").value),
+      qrg_tolerance_khz: Number(form.elements.namedItem("qrg_tolerance_khz").value),
+      lead_minutes: Number(form.elements.namedItem("lead_minutes").value),
+      duration_minutes: Number(form.elements.namedItem("duration_minutes").value),
+      buddy_enabled: !!(enabledEl && enabledEl.checked),
+      buddy_main_khz: Number(form.elements.namedItem("buddy_main_khz").value),
+      buddy_alt_khz: Number(form.elements.namedItem("buddy_alt_khz").value),
+      buddy_time_utc: form.elements.namedItem("buddy_time_utc").value,
+      buddy_lead: Number(form.elements.namedItem("buddy_lead").value),
+      buddy_duration_minutes: Number(form.elements.namedItem("buddy_duration_minutes").value),
+      buddy_kiwi_count: Number(form.elements.namedItem("buddy_kiwi_count").value),
+      buddy_include_fleet: !!(fleetEl && fleetEl.checked),
+      buddy_skippers: skippers,
+    };
+  };
 
   const headers = () => {
     const token = (tokenInput && tokenInput.value) || "";
@@ -83,7 +106,7 @@
       const data = await saveSettings();
       say(
         "save",
-        `Fréquences mémorisées (pas d’enregistrement radio) : ${data.tx_mhz} / ${data.ack1_mhz} / ${data.ack2_mhz} MHz · avance ${data.schedule_lead} min · durée ${data.duration_minutes} min.`,
+        `Fréquences mémorisées : ${data.tx_mhz} / ${data.ack1_mhz} / ${data.ack2_mhz} MHz · buddy ${data.buddy_main_khz} / ${data.buddy_alt_khz} kHz à ${data.buddy_time_utc} TU.`,
         true
       );
     } catch (err) {
@@ -155,6 +178,62 @@
         say("vac", String(err), false);
       } finally {
         busy(recordBtn, false);
+      }
+    });
+  }
+
+  const saveBuddyBtn = document.getElementById("save-buddy");
+  if (saveBuddyBtn) {
+    saveBuddyBtn.addEventListener("click", async () => {
+      busy(saveBuddyBtn, true);
+      say("buddy", "Sauvegarde du buddy call…", true);
+      try {
+        const data = await saveSettings();
+        say(
+          "buddy",
+          `Buddy call mémorisé : ${data.buddy_main_khz} / ${data.buddy_alt_khz} kHz à ${data.buddy_time_utc} TU` +
+            ` · ${data.buddy_enabled ? "actif" : "désactivé"}` +
+            ` · ${data.buddy_include_fleet ? "centroïde flotte" : (data.buddy_skippers || []).join(", ") || "aucun skipper"}` +
+            ` · ${data.buddy_kiwi_count} Kiwi.`,
+          true
+        );
+      } catch (err) {
+        say("buddy", String(err), false);
+      } finally {
+        busy(saveBuddyBtn, false);
+      }
+    });
+  }
+
+  const recordBuddyBtn = document.getElementById("record-buddy");
+  if (recordBuddyBtn) {
+    recordBuddyBtn.addEventListener("click", async () => {
+      busy(recordBuddyBtn, true);
+      say("buddy", "Sauvegarde puis démarrage du buddy call…", true);
+      try {
+        await saveSettings();
+        const res = await fetch("/api/vacations/record", {
+          method: "POST",
+          headers: headers(),
+          body: JSON.stringify({
+            kind: "buddy",
+            duration_minutes: Number(form.elements.namedItem("buddy_duration_minutes").value),
+          }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (res.status === 202) {
+          say(
+            "buddy",
+            `Buddy call lancé (${data.duration_minutes} min) : 4483 et 6516 kHz sur plusieurs Kiwi. Carte sur l’accueil à la fin.`,
+            true
+          );
+          return;
+        }
+        say("buddy", _detail(data) || `Erreur ${res.status}`, false);
+      } catch (err) {
+        say("buddy", String(err), false);
+      } finally {
+        busy(recordBuddyBtn, false);
       }
     });
   }

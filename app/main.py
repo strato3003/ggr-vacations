@@ -16,14 +16,15 @@ from fastapi.staticfiles import StaticFiles
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 from app import store
-from recorder.config import ack_label, fmt_mhz, load_config, parse_qrg_khz, qrg_context, save_runtime_settings, version
-from recorder.fleet import fetch_fleet
-from recorder.kiwi_list import fetch_ranked_kiwis
+from recorder.config import ack_label, fmt_khz, fmt_mhz, load_config, parse_qrg_khz, qrg_context, save_runtime_settings, version
+from recorder.fleet import buddy_aim, fetch_fleet
+from recorder.kiwi_list import assign_buddy_kiwis, fetch_ranked_kiwis
 from recorder.scheduler import apply_vacation_schedule, build_scheduler
 from recorder.session import (
     finalize_pending_sessions,
     next_vacation_utc,
     recover_orphaned,
+    run_buddy_call,
     run_manual_qrg,
     run_vacation,
 )
@@ -88,6 +89,7 @@ def _ctx(request: Request, **extra):
     cfg = load_config()
     nxt = next_vacation_utc(cfg)
     bulletin = _bulletin_utc(cfg)
+    buddy_at = _buddy_clock_utc(cfg)
     club = cfg.get("club") or {}
     schedule = cfg.get("schedule") or {}
     qrg = qrg_context(cfg)
@@ -103,6 +105,8 @@ def _ctx(request: Request, **extra):
         "next_start_iso": nxt.isoformat(),
         "bulletin_iso": bulletin.isoformat(),
         "bulletin_label": bulletin.strftime("%d/%m %H:%M"),
+        "buddy_iso": buddy_at.isoformat(),
+        "buddy_label": buddy_at.strftime("%d/%m %H:%M"),
         "recording": store.recording_in_progress(cfg),
         "admin_configured": _admin_configured(cfg),
         **qrg,
@@ -123,9 +127,8 @@ def _require_admin(x_admin_token: str | None, cfg: dict | None = None) -> None:
         raise HTTPException(403, "Jeton administrateur invalide")
 
 
-def _bulletin_utc(cfg) -> datetime:
-    sched = cfg.get("schedule") or {}
-    hh, mm = (sched.get("time_utc") or "18:00").split(":")
+def _clock_utc(time_utc: str) -> datetime:
+    hh, mm = (time_utc or "00:00").split(":")
     now = datetime.now(timezone.utc)
     t = now.replace(hour=int(hh), minute=int(mm), second=0, microsecond=0)
     if t <= now:
@@ -133,6 +136,16 @@ def _bulletin_utc(cfg) -> datetime:
 
         t = t + timedelta(days=1)
     return t
+
+
+def _bulletin_utc(cfg) -> datetime:
+    sched = cfg.get("schedule") or {}
+    return _clock_utc(str(sched.get("time_utc") or "18:00"))
+
+
+def _buddy_clock_utc(cfg) -> datetime:
+    buddy = cfg.get("buddy") or {}
+    return _clock_utc(str(buddy.get("time_utc") or "12:00"))
 
 
 @app.get("/health")
@@ -165,18 +178,43 @@ async def flotte_page(request: Request):
     cfg = load_config()
     try:
         fleet = await fetch_fleet(cfg)
+        aim = buddy_aim(fleet, cfg)
         try:
             kiwis = await fetch_ranked_kiwis(cfg, fleet["lat"], fleet["lon"], limit=8)
         except Exception:
             log.exception("Liste KiwiSDR indisponible")
             kiwis = []
+        buddy_kiwis = []
+        try:
+            qrg = qrg_context(cfg)
+            cover = [int(round(qrg["buddy_main_khz"] * 1000)), int(round(qrg["buddy_alt_khz"] * 1000))]
+            pool = await fetch_ranked_kiwis(
+                cfg,
+                float(aim["lat"]),
+                float(aim["lon"]),
+                limit=0,
+                min_free=1,
+                cover_hz=cover,
+                score_mode="buddy",
+            )
+            roles = assign_buddy_kiwis(pool, lat=float(aim["lat"]), lon=float(aim["lon"]), cfg=cfg)
+            buddy_kiwis = list(roles.values())
+        except Exception:
+            log.exception("KiwiSDR buddy indisponibles")
     except Exception as exc:
         log.exception("Page flotte")
         return HTMLResponse(
             f"<!doctype html><pre>Erreur flotte : {type(exc).__name__}: {exc}</pre>",
             status_code=500,
         )
-    return render(request, "flotte.html", fleet=fleet, kiwis=kiwis)
+    return render(
+        request,
+        "flotte.html",
+        fleet=fleet,
+        kiwis=kiwis,
+        buddy_aim=aim,
+        buddy_kiwis=buddy_kiwis,
+    )
 
 
 @app.get("/a-propos", response_class=HTMLResponse)
@@ -186,7 +224,14 @@ async def about_page(request: Request):
 
 @app.get("/reglages", response_class=HTMLResponse)
 async def reglages_page(request: Request):
-    return render(request, "reglages.html")
+    cfg = load_config()
+    boats = []
+    try:
+        fleet = await fetch_fleet(cfg)
+        boats = fleet.get("boats") or []
+    except Exception:
+        log.exception("Skippers indisponibles pour Réglages")
+    return render(request, "reglages.html", boats=boats)
 
 
 @app.get("/media/{vacation_id}/{filename}")
@@ -299,6 +344,64 @@ async def api_settings_put(
         },
         "schedule": {"lead_minutes": lead, "duration_minutes": duration},
     }
+    if "buddy_main_khz" in body or "buddy_skippers" in body:
+        buddy_cfg = dict(cfg.get("buddy") or {})
+        main = dict(buddy_cfg.get("main") or {})
+        alt = dict(buddy_cfg.get("alternate") or {})
+        cent = dict(buddy_cfg.get("centroid") or {})
+        kiwi = dict(buddy_cfg.get("kiwi") or {})
+        if "buddy_main_khz" in body:
+            main["freq_khz"] = _khz_field(body, "buddy_main_khz", "QRG buddy 4483")
+            main["label"] = f"Buddy call {fmt_khz(main['freq_khz'])} kHz"
+        if "buddy_alt_khz" in body:
+            alt["freq_khz"] = _khz_field(body, "buddy_alt_khz", "QRG buddy 6516")
+            alt["label"] = f"Buddy call {fmt_khz(alt['freq_khz'])} kHz (secours)"
+        if "buddy_time_utc" in body:
+            from recorder.config import _hhmm
+
+            buddy_cfg["time_utc"] = _hhmm(str(body.get("buddy_time_utc") or ""), "12:00")
+        if "buddy_lead" in body:
+            try:
+                b_lead = int(body.get("buddy_lead"))
+            except (TypeError, ValueError) as exc:
+                raise HTTPException(400, "Avance buddy invalide") from exc
+            if not (0 <= b_lead <= 15):
+                raise HTTPException(400, "Avance buddy hors plage (0–15 min)")
+            buddy_cfg["lead_minutes"] = b_lead
+        if "buddy_duration_minutes" in body:
+            try:
+                b_dur = int(body.get("buddy_duration_minutes"))
+            except (TypeError, ValueError) as exc:
+                raise HTTPException(400, "Durée buddy invalide") from exc
+            if not (1 <= b_dur <= 45):
+                raise HTTPException(400, "Durée buddy hors plage (1–45 min)")
+            buddy_cfg["duration_minutes"] = b_dur
+        if "buddy_enabled" in body:
+            buddy_cfg["enabled"] = bool(body.get("buddy_enabled"))
+        if "buddy_include_fleet" in body:
+            cent["include_fleet"] = bool(body.get("buddy_include_fleet"))
+        if "buddy_skippers" in body:
+            raw_skip = body.get("buddy_skippers")
+            if isinstance(raw_skip, str):
+                names = [ln.strip() for ln in raw_skip.splitlines() if ln.strip()]
+            elif isinstance(raw_skip, list):
+                names = [str(x).strip() for x in raw_skip if str(x).strip()]
+            else:
+                raise HTTPException(400, "Liste de skippers buddy invalide")
+            cent["skippers"] = names
+        if "buddy_kiwi_count" in body:
+            try:
+                n_kiwi = int(body.get("buddy_kiwi_count"))
+            except (TypeError, ValueError) as exc:
+                raise HTTPException(400, "Nombre de Kiwi buddy invalide") from exc
+            if not (1 <= n_kiwi <= 8):
+                raise HTTPException(400, "Nombre de Kiwi buddy hors plage (1–8)")
+            kiwi["count"] = n_kiwi
+        buddy_cfg["main"] = main
+        buddy_cfg["alternate"] = alt
+        buddy_cfg["centroid"] = cent
+        buddy_cfg["kiwi"] = kiwi
+        patch["buddy"] = buddy_cfg
     new_cfg = save_runtime_settings(patch, cfg)
     scheduler = getattr(request.app.state, "scheduler", None)
     if scheduler is not None:
@@ -322,6 +425,7 @@ async def api_record(
     freq_khz = None
     hunt = True
     tol = None
+    kind = "vacation"
     raw = await request.body()
     if raw:
         try:
@@ -329,6 +433,7 @@ async def api_record(
         except json.JSONDecodeError as exc:
             raise HTTPException(400, "JSON invalide") from exc
         if isinstance(body, dict):
+            kind = str(body.get("kind") or "vacation")
             if body.get("duration_minutes") is not None:
                 try:
                     duration = int(body["duration_minutes"])
@@ -370,6 +475,13 @@ async def api_record(
                 "duration_minutes": minutes,
                 "hunt": hunt,
             },
+            status_code=202,
+        )
+    if kind == "buddy":
+        minutes = duration if duration is not None else int((cfg.get("buddy") or {}).get("duration_minutes") or 15)
+        asyncio.create_task(run_buddy_call(reason="buddy-api", duration_minutes=minutes))
+        return JSONResponse(
+            {"ok": True, "status": "started", "mode": "buddy", "duration_minutes": minutes},
             status_code=202,
         )
     asyncio.create_task(run_vacation(reason="api", duration_minutes=duration))

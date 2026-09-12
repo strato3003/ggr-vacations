@@ -1,5 +1,5 @@
 # Configuration GGR Vacations — F6KUF / flotte Golden Globe Race
-version: "0.1.12"
+version: "0.2.0"
 
 club:
   callsign: F6KUF
@@ -33,6 +33,35 @@ radio:
     - freq_khz: 12418.0
       label: "Accusé 12,418 MHz"
       zoom: 10
+
+# Buddy call quotidien (skippers entre eux, pas le bulletin F6KUF)
+buddy:
+  enabled: true
+  time_utc: "12:00"
+  lead_minutes: 1
+  duration_minutes: 15
+  mode: usb
+  main:
+    freq_khz: 4483.0
+    label: "Buddy call 4483 kHz"
+    zoom: 10
+  alternate:
+    freq_khz: 6516.0
+    label: "Buddy call 6516 kHz (secours)"
+    zoom: 10
+  centroid:
+    # Noms Yellowbrick RaceSetup (ggr2026). Le centroïde est celui de ces skippers,
+    # ou de toute la flotte en course si include_fleet est vrai.
+    skippers:
+      - "Damien Guillou"
+      - "Etienne Messikommer"
+      - "Louis Kerdelhue"
+    include_fleet: false
+  kiwi:
+    # Plusieurs WebSDR : NVIS proche + saut 1 hop + diversité d’azimut (pas seulement le plus proche).
+    count: 4
+    min_separation_km: 400
+    min_free_slots: 2
 
 # Position moyenne de la flotte GGR (Yellowbrick)
 fleet:

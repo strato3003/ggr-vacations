@@ -6,9 +6,13 @@
   <p>
     Chaque jour à <strong>{{ time_utc }} TU</strong>, le radio-club <strong>{{ club_callsign }}</strong>
     émet le bulletin météo à destination des skippers du Golden Globe Race.
-    L’application capture le waterfall (Kiwi le plus proche de la flotte)
-    et enregistre en parallèle l’audio USB du bulletin et des deux QRG d’accusé
-    depuis la flotte, la France et Tahiti.
+    À <strong>{{ buddy_time_utc }} TU</strong>, l’écoute <strong>buddy call</strong> capte
+    <strong>{{ '%.0f'|format(buddy_main_khz) }} kHz</strong> et
+    <strong>{{ '%.0f'|format(buddy_alt_khz) }} kHz</strong> (secours) depuis plusieurs KiwiSDR
+    choisis pour la propagation vers le centroïde
+    {% if buddy_include_fleet %}de la flotte (dont {{ buddy_skippers_short }}){% else %}de {{ buddy_skippers_short }}{% endif %}.
+    L’application capture aussi le waterfall du bulletin (Kiwi le plus proche de la flotte)
+    et les deux QRG d’accusé depuis la flotte, la France et Tahiti.
     <a href="/reglages#record-test">Record test</a> sur n’importe quelle QRG.
   </p>
 </section>
@@ -26,6 +30,7 @@
       <div class="card__body">
         <h2>{{ v.started_at | when }}</h2>
         <p class="meta">
+          {% if v.is_buddy %}<span class="badge">Buddy call</span>{% endif %}
           {% if v.is_test %}<span class="badge">{{ v.title or 'Test' }}</span>{% endif %}
           {{ v.title or (v.club.callsign if v.club else club_callsign) }}
           · {{ v.fleet_fmt or (v.fleet.fmt if v.fleet else '') }}

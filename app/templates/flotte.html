@@ -10,6 +10,8 @@
   <p>
     Les KiwiSDR du bulletin sont ceux les plus proches de ce centroïde (ce que la flotte entend).
     Les accusés s’écoutent aussi depuis un Kiwi en France et un vers Tahiti.
+    Le <strong>buddy call</strong> ({{ '%.0f'|format(buddy_main_khz) }} / {{ '%.0f'|format(buddy_alt_khz) }} kHz à {{ buddy_time_utc }} TU)
+    vise le centroïde des skippers choisis, avec des Kiwi en NVIS et en saut 1 hop — pas seulement le plus proche.
   </p>
 </section>
 
@@ -18,6 +20,13 @@
   <p class="meta">{{ fleet.label }} · source {{ fleet.source }} · {{ fleet.n_boats }} bateaux</p>
   {% if fleet.warning %}<p class="err">{{ fleet.warning }}</p>{% endif %}
 </div>
+{% if buddy_aim %}
+<div class="fleet-box">
+  <p class="qrg__v">{{ buddy_aim.fmt }}</p>
+  <p class="meta">{{ buddy_aim.label }} · buddy call {{ '%.0f'|format(buddy_main_khz) }} / {{ '%.0f'|format(buddy_alt_khz) }} kHz</p>
+  {% if buddy_aim.warning %}<p class="err">{{ buddy_aim.warning }}</p>{% endif %}
+</div>
+{% endif %}
 
 <figure class="ggr-map-fig">
   <div id="ggr-map" class="ggr-map" role="region" aria-label="Carte des bateaux GGR et des KiwiSDR"></div>
@@ -27,7 +36,8 @@
   </figcaption>
   <ul class="ggr-map-legend">
     <li><span class="dot dot--boat"></span> Bateau (cap)</li>
-    <li><span class="dot dot--cent"></span> Centroïde</li>
+    <li><span class="dot dot--cent"></span> Centroïde flotte</li>
+    <li><span class="dot dot--buddy"></span> Centroïde buddy</li>
     <li><span class="dot dot--sdr"></span> KiwiSDR</li>
     <li>
       <label class="ggr-map-toggle">
@@ -39,8 +49,10 @@
 </figure>
 <script type="application/json" id="ggr-map-data">{{ {
   "centroid": {"lat": fleet.lat, "lon": fleet.lon, "label": fleet.label, "fmt": fleet.fmt},
+  "buddy": buddy_aim or {},
   "boats": fleet.boats or [],
-  "kiwis": kiwis or []
+  "kiwis": kiwis or [],
+  "buddy_kiwis": buddy_kiwis or []
 } | tojson }}</script>
 
 {% if fleet.boats %}
@@ -51,7 +63,7 @@
   <tbody>
     {% for b in fleet.boats %}
     <tr>
-      <td>{{ b.name }}</td>
+      <td>{{ b.name }}{% if buddy_aim and b.name in buddy_aim.skipper_names %} <span class="badge">buddy</span>{% endif %}</td>
       <td>{{ b.sail or '—' }}</td>
       <td>{{ '%.3f'|format(b.lat) }}, {{ '%.3f'|format(b.lon) }}</td>
     </tr>
@@ -60,7 +72,28 @@
 </table>
 {% endif %}
 
-<h2>KiwiSDR retenus</h2>
+<h2>KiwiSDR buddy call (propagation 4 / 6 MHz)</h2>
+<table class="tbl">
+  <thead>
+    <tr><th>Rôle</th><th>Récepteur</th><th>Distance</th><th>Zone</th><th>SNR HF</th><th>Places</th></tr>
+  </thead>
+  <tbody>
+    {% for k in buddy_kiwis or [] %}
+    <tr>
+      <td>{{ k.site_label or k.site }}</td>
+      <td><a href="{{ k.url }}" rel="noreferrer">{{ k.name }}</a><br><span class="meta">{{ k.loc }} · {{ k.antenna }}</span></td>
+      <td>{{ k.site_km or k.distance_km }} km</td>
+      <td>{{ k.prop_zone or '—' }}</td>
+      <td>{{ k.snr_hf }}</td>
+      <td>{{ k.free_slots }}/{{ k.users_max }}</td>
+    </tr>
+    {% else %}
+    <tr><td colspan="6" class="meta">Aucun Kiwi couvrant 4483 et 6516 kHz pour le moment.</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+<h2>KiwiSDR bulletin (12–17 MHz, proximité flotte)</h2>
 <table class="tbl">
   <thead>
     <tr><th>Récepteur</th><th>Distance</th><th>SNR HF</th><th>Places</th><th>Score</th></tr>

@@ -153,7 +153,7 @@ def qrg_context(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
     lead = int(sched.get("lead_minutes") or 1)
     duration = int(sched.get("duration_minutes") or 10)
     time_utc = str(sched.get("time_utc") or "18:00")
-    return {
+    ctx = {
         "tx_khz": tx_khz,
         "ack1_khz": ack1,
         "ack2_khz": ack2,
@@ -167,6 +167,56 @@ def qrg_context(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
         "tx_label": tx.get("label") or "Bulletin météo F6KUF",
         "ack1_label": (acks[0].get("label") if acks else None) or ack_label(ack1),
         "ack2_label": (acks[1].get("label") if len(acks) > 1 else None) or ack_label(ack2),
+    }
+    ctx.update(buddy_context(cfg))
+    return ctx
+
+
+def fmt_khz(freq_khz: float) -> str:
+    """4483.0 → 4483 ; 6516.5 → 6516.5."""
+    text = f"{float(freq_khz):.3f}".rstrip("0").rstrip(".")
+    return text or "0"
+
+
+def _hhmm(raw: str | None, default: str) -> str:
+    text = str(raw or default).strip()
+    parts = text.split(":")
+    if len(parts) < 2:
+        return default
+    try:
+        hh = int(parts[0])
+        mm = int(parts[1])
+    except ValueError:
+        return default
+    if not (0 <= hh <= 23 and 0 <= mm <= 59):
+        return default
+    return f"{hh:02d}:{mm:02d}"
+
+
+def buddy_context(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Buddy call 12:00 TU — QRG et centroïde exposés à l’UI."""
+    cfg = cfg or load_config()
+    buddy = cfg.get("buddy") or {}
+    main = buddy.get("main") or {}
+    alt = buddy.get("alternate") or {}
+    cent = buddy.get("centroid") or {}
+    kiwi = buddy.get("kiwi") or {}
+    main_khz = float(main.get("freq_khz") or 4483.0)
+    alt_khz = float(alt.get("freq_khz") or 6516.0)
+    skippers = [str(x).strip() for x in (cent.get("skippers") or []) if str(x).strip()]
+    return {
+        "buddy_enabled": bool(buddy.get("enabled", True)),
+        "buddy_time_utc": _hhmm(buddy.get("time_utc"), "12:00"),
+        "buddy_lead": int(buddy.get("lead_minutes") or 1),
+        "buddy_duration_minutes": int(buddy.get("duration_minutes") or 15),
+        "buddy_main_khz": main_khz,
+        "buddy_alt_khz": alt_khz,
+        "buddy_main_label": main.get("label") or f"Buddy call {fmt_khz(main_khz)} kHz",
+        "buddy_alt_label": alt.get("label") or f"Buddy call {fmt_khz(alt_khz)} kHz (secours)",
+        "buddy_skippers": skippers,
+        "buddy_include_fleet": bool(cent.get("include_fleet")),
+        "buddy_kiwi_count": int(kiwi.get("count") or 4),
+        "buddy_skippers_short": ", ".join(skippers) if skippers else "flotte",
     }
 
 
@@ -186,4 +236,4 @@ def version(cfg: dict[str, Any] | None = None) -> str:
         return pkg_version("ggr-vacations")
     except PackageNotFoundError:
         cfg = cfg or {}
-        return str(cfg.get("version") or "0.1.12")
+        return str(cfg.get("version") or "0.2.0")

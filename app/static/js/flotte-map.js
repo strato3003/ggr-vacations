@@ -85,6 +85,29 @@
       .addTo(boatLayer);
   }
 
+  const buddy = data.buddy || {};
+  if (Number.isFinite(buddy.lat) && Number.isFinite(buddy.lon)) {
+    const ll = [buddy.lat, buddy.lon];
+    bounds.push(ll);
+    L.circleMarker(ll, {
+      radius: 9,
+      color: "#c9a227",
+      weight: 2,
+      fillColor: "#c9a227",
+      fillOpacity: 0.2,
+    })
+      .bindTooltip("Centroïde buddy", {
+        permanent: false,
+        direction: "top",
+        className: "ggr-yb-label",
+      })
+      .bindPopup(
+        `<strong>${esc(buddy.label || "Centroïde buddy")}</strong><br>` +
+          `${esc(buddy.fmt || fmt(buddy.lat) + ", " + fmt(buddy.lon))}`
+      )
+      .addTo(boatLayer);
+  }
+
   kiwis.forEach((k) => {
     const ll = [k.lat, k.lon];
     bounds.push(ll);
@@ -98,6 +121,23 @@
         opacity: 1,
       })
       .bindPopup(sdrPopup(k))
+      .addTo(sdrLayer);
+  });
+
+  (data.buddy_kiwis || []).forEach((k) => {
+    if (!Number.isFinite(k.lat) || !Number.isFinite(k.lon)) return;
+    const ll = [k.lat, k.lon];
+    bounds.push(ll);
+    const label = (k.site_label ? k.site_label + " · " : "") + sdrLabel(k);
+    L.marker(ll, { icon: sdrIcon(), zIndexOffset: 320 })
+      .bindTooltip(esc(label), {
+        permanent: true,
+        direction: "right",
+        offset: [12, 0],
+        className: "ggr-sdr-label",
+        opacity: 1,
+      })
+      .bindPopup(sdrPopup(k) + (k.prop_zone ? `<br>Zone HF : ${esc(k.prop_zone)}` : ""))
       .addTo(sdrLayer);
   });
 

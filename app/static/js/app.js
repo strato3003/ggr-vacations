@@ -2,13 +2,12 @@
   const TOKEN_KEY = "ggr-admin-token";
   const token = () => localStorage.getItem(TOKEN_KEY) || "";
 
-  const el = document.getElementById("countdown");
-  if (el && el.dataset.iso) {
+  document.querySelectorAll(".js-countdown[data-iso]").forEach((el) => {
     const target = new Date(el.dataset.iso);
     const tick = () => {
       const ms = target.getTime() - Date.now();
       if (ms <= 0) {
-        el.textContent = "en cours / voir demain 18:00 TU";
+        el.textContent = "en cours / voir demain";
         return;
       }
       const s = Math.floor(ms / 1000);
@@ -19,7 +18,7 @@
     };
     tick();
     setInterval(tick, 30000);
-  }
+  });
 
   const hasToken = !!token();
   document.querySelectorAll(".js-del-vac").forEach((btn) => {

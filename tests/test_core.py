@@ -544,3 +544,110 @@ def test_usb_dial_in_plus_minus_five_khz_window():
     )
     assert hit is not None
     assert abs(hit["freq_khz"] - 14138.0) < 0.25
+
+
+def test_scheduler_buddy_cron_is_1159():
+    from recorder.scheduler import _buddy_lead
+
+    assert _buddy_lead({"buddy": {"time_utc": "12:00", "lead_minutes": 1}}) == (11, 59)
+
+
+def test_fmt_khz_keeps_integer_channel():
+    from recorder.config import fmt_khz
+
+    assert fmt_khz(4483.0) == "4483"
+    assert fmt_khz(6516.0) == "6516"
+
+
+def test_covers_freqs_not_full_span():
+    from recorder.kiwi_list import _covers_freqs, _covers_hf
+
+    bands = (3_000_000, 8_000_000)
+    assert _covers_freqs(bands, [4_483_000, 6_516_000])
+    assert not _covers_hf(bands, 12_000_000, 17_000_000)
+    assert not _covers_freqs(bands, [14_135_000])
+
+
+def test_midday_prop_prefers_nvis_on_4mhz_and_hop_on_6mhz():
+    from recorder.kiwi_list import hf_midday_prop_score, hf_midday_zone
+
+    assert hf_midday_zone(400) == "nvis"
+    assert hf_midday_zone(1100) == "skip"
+    assert hf_midday_zone(2000) == "hop"
+    assert hf_midday_prop_score(400, 4483) > hf_midday_prop_score(1100, 4483)
+    assert hf_midday_prop_score(2000, 6516) > hf_midday_prop_score(1100, 6516)
+
+
+def test_buddy_aim_trio_or_whole_fleet():
+    from recorder.fleet import buddy_aim
+
+    fleet = {
+        "lat": 0.0,
+        "lon": 0.0,
+        "fmt": "0.000°N 0.000°E",
+        "label": "flotte",
+        "n_boats": 3,
+        "boats": [
+            {"id": 6, "name": "Damien Guillou", "lat": 40.0, "lon": -20.0},
+            {"id": 13, "name": "Etienne Messikommer", "lat": 41.0, "lon": -21.0},
+            {"id": 2, "name": "Louis Kerdelhue", "lat": 42.0, "lon": -22.0},
+            {"id": 1, "name": "Gunnar Christensen", "lat": 10.0, "lon": 10.0},
+        ],
+        "source": "yellowbrick",
+    }
+    trio_cfg = {
+        "buddy": {
+            "centroid": {
+                "skippers": ["Damien Guillou", "Etienne Messikommer", "Louis Kerdelhue"],
+                "include_fleet": False,
+            }
+        }
+    }
+    trio = buddy_aim(fleet, trio_cfg)
+    assert trio["n_boats"] == 3
+    assert 40.0 < trio["lat"] < 42.0
+    all_cfg = {
+        "buddy": {
+            "centroid": {
+                "skippers": ["Damien Guillou"],
+                "include_fleet": True,
+            }
+        }
+    }
+    whole = buddy_aim(fleet, all_cfg)
+    assert whole["n_boats"] == 4
+    assert whole["lat"] < trio["lat"]
+
+
+def test_assign_buddy_kiwis_nvis_and_hop_not_just_nearest():
+    from recorder.kiwi_list import assign_buddy_kiwis, score_buddy_kiwi
+
+    def kiwi(kid, lat, lon, dist, snr=20, free=3):
+        row = {
+            "id": kid,
+            "name": kid,
+            "lat": lat,
+            "lon": lon,
+            "snr_hf": snr,
+            "free_slots": free,
+            "distance_km": dist,
+            "bands_hz": [0, 30_000_000],
+        }
+        row["score"] = score_buddy_kiwi(row, 40.0, -20.0, [4483.0, 6516.0])
+        return row
+
+    # Centroïde ~ 40N 20W. Un Kiwi très proche mais en zone morte ~1100 km
+    # ne doit pas gagner contre un NVIS et un 1 hop.
+    pool = [
+        kiwi("dead-zone", 50.0, -20.0, 1112, snr=35, free=8),
+        kiwi("nvis", 41.0, -21.0, 140, snr=12, free=3),
+        kiwi("hop-east", 40.0, 0.0, 1700, snr=18, free=4),
+        kiwi("hop-west", 40.0, -40.0, 1700, snr=16, free=3),
+    ]
+    cfg = {"buddy": {"kiwi": {"count": 3, "min_separation_km": 300}}}
+    roles = assign_buddy_kiwis(pool, lat=40.0, lon=-20.0, cfg=cfg)
+    names = {k.get("name") for k in roles.values()}
+    assert "nvis" in names
+    assert "hop-east" in names or "hop-west" in names
+    assert "dead-zone" not in names or len(names) >= 3
+    assert roles["nvis"]["name"] == "nvis"

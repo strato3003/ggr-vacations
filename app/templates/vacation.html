@@ -6,10 +6,12 @@
     <p class="crumb"><a href="/">← Vacations</a></p>
     <h1>{{ vacation.title or (vacation.started_at | when) }}</h1>
     <p class="meta">
+      {% if vacation.is_buddy %}<span class="badge">Buddy call</span>{% endif %}
       {% if vacation.is_test %}<span class="badge">{{ vacation.title or 'Test' }}</span>{% endif %}
       {{ vacation.club.callsign if vacation.club else club_callsign }}
       · SDR selon {{ vacation.fleet.label if vacation.fleet else 'flotte' }}
       {% if vacation.fleet %}({{ vacation.fleet.fmt }}){% endif %}
+      {% if vacation.buddy_aim %} · {{ vacation.buddy_aim.label }}{% endif %}
       · {{ vacation.status }}
     </p>
     <p class="vac__actions">
@@ -40,7 +42,8 @@
           {% if ch.site_label %}<span class="badge">{{ ch.site_label }}</span>{% endif %}
           {{ ch.kiwi.name }}
           {% if ch.kiwi.fmt %} · {{ ch.kiwi.fmt }}{% endif %}
-          {% if ch.kiwi.site_km is defined %} · {{ ch.kiwi.site_km }} km du site{% endif %}
+          {% if ch.kiwi.prop_zone %} · {{ ch.kiwi.prop_zone }}{% endif %}
+          {% if ch.kiwi.site_km is defined %} · {{ ch.kiwi.site_km }} km{% endif %}
           · SNR HF {{ ch.kiwi.snr_hf }}
         </p>
         {% endif %}

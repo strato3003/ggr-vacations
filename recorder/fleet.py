@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import struct
+import unicodedata
 from datetime import datetime, timezone
 from typing import Any
 
@@ -222,3 +223,77 @@ async def fetch_fleet(cfg: dict[str, Any], client: Any | None = None) -> dict[st
             await client.aclose()
     result["fmt"] = fmt_latlon(result["lat"], result["lon"])
     return result
+
+
+def _fold_name(text: str) -> str:
+    """Minuscules, sans accents, espaces normalisés — pour matcher les skippers."""
+    nfkd = unicodedata.normalize("NFKD", text or "")
+    stripped = "".join(ch for ch in nfkd if not unicodedata.combining(ch))
+    return " ".join(stripped.lower().split())
+
+
+def skipper_matches(boat: dict[str, Any], names: list[str], team_ids: list[int]) -> bool:
+    if team_ids and int(boat.get("id") or 0) in team_ids:
+        return True
+    boat_name = _fold_name(str(boat.get("name") or ""))
+    if not boat_name:
+        return False
+    for raw in names:
+        needle = _fold_name(str(raw))
+        if needle and (needle == boat_name or needle in boat_name or boat_name in needle):
+            return True
+    return False
+
+
+def buddy_aim(fleet: dict[str, Any], cfg: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Centroïde d’écoute buddy : trio (ou liste) avec ou sans le reste de la flotte."""
+    cfg = cfg or {}
+    buddy = cfg.get("buddy") or {}
+    cent = buddy.get("centroid") or {}
+    names = [str(x).strip() for x in (cent.get("skippers") or []) if str(x).strip()]
+    try:
+        team_ids = [int(x) for x in (cent.get("team_ids") or [])]
+    except (TypeError, ValueError):
+        team_ids = []
+    include_fleet = bool(cent.get("include_fleet"))
+    boats = [b for b in (fleet.get("boats") or []) if isinstance(b, dict)]
+    core = [b for b in boats if skipper_matches(b, names, team_ids)]
+    chosen = boats if include_fleet else core
+    points = [
+        (float(b["lat"]), float(b["lon"]))
+        for b in chosen
+        if b.get("lat") is not None and b.get("lon") is not None
+    ]
+    center = centroid(points) if points else None
+    core_names = [str(b.get("name") or "?").strip() for b in core]
+    if center:
+        if include_fleet:
+            label = f"Centroïde flotte ({len(points)} bateaux"
+            if core_names:
+                label += f", dont {', '.join(core_names)}"
+            label += ")"
+        else:
+            label = "Centroïde buddy : " + (", ".join(core_names) or "aucun skipper")
+        return {
+            "lat": center[0],
+            "lon": center[1],
+            "fmt": fmt_latlon(center[0], center[1]),
+            "label": label,
+            "n_boats": len(points),
+            "skippers": core,
+            "skipper_names": core_names,
+            "include_fleet": include_fleet,
+            "source": fleet.get("source") or "buddy",
+        }
+    return {
+        "lat": float(fleet.get("lat") or 46.5025),
+        "lon": float(fleet.get("lon") or -1.7888),
+        "fmt": fleet.get("fmt") or fmt_latlon(float(fleet.get("lat") or 46.5025), float(fleet.get("lon") or -1.7888)),
+        "label": (fleet.get("label") or "Flotte") + " (repli buddy)",
+        "n_boats": int(fleet.get("n_boats") or 0),
+        "skippers": core,
+        "skipper_names": core_names,
+        "include_fleet": include_fleet,
+        "source": fleet.get("source") or "fallback",
+        "warning": "Skippers buddy introuvables — centroïde flotte utilisé",
+    }
